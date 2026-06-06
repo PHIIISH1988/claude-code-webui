@@ -57,6 +57,7 @@ export function renderTaskCard(task, ctx) {
   card.className = 'task-item-card'
     + (ctx.pinned ? ' pinned' : '')
     + (ctx.selected ? ' selected' : '')
+    + (ctx.active ? ' active-task' : '')
     + (ctx.subTask ? ' subtask' : '');
   card.dataset.taskId = task.id;
   card.title = task.id + (task.title ? ` — ${task.title}` : '');

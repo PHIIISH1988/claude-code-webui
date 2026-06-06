@@ -341,6 +341,52 @@ html, body {
 .task-parse-error {
   color: #f39c12; font-size: 11px; cursor: help;
 }
+
+.task-item-card.active-task {
+  background: rgba(99, 102, 241, 0.15);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+.task-item-card.active-task:hover { background: rgba(99, 102, 241, 0.22); }
+
+/* ── Top task bar (Phase 3) ─────────────────────────────────── */
+/* Lives in #toolbar. Hidden when no task workspace is active so Default
+ * mode looks identical to before. */
+.task-active-bar {
+  display: none;
+  align-items: center; gap: 8px;
+  margin-left: 12px; padding: 4px 10px;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  font-size: 11px;
+  max-width: 40vw;
+}
+.task-active-bar.active { display: inline-flex; }
+.task-active-label { font-size: 13px; }
+.task-active-name {
+  color: var(--accent); font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 28vw;
+}
+.task-active-status {
+  font-size: 10px; color: var(--text-dim);
+  padding: 1px 6px; border-radius: 3px;
+  background: var(--bg-input);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.task-active-status.priority-urgent { color: #e74c3c; }
+.task-active-status.priority-high { color: #f39c12; }
+.task-active-back {
+  background: var(--bg-input); color: var(--text);
+  border: 1px solid var(--border); border-radius: 3px;
+  padding: 2px 8px; font-size: 10px; cursor: pointer;
+  flex-shrink: 0;
+}
+.task-active-back:hover {
+  background: var(--bg-hover); border-color: var(--accent);
+}
 .session-item-card.highlighted.highlight-flash { animation: highlight-flash 0.4s ease-out; }
 @keyframes highlight-flash { 0% { background: var(--accent-dim, rgba(99,102,241,0.25)); } 100% { background: var(--bg-hover); } }
 

@@ -4,6 +4,7 @@ import { WsManager } from './ws.js';
 import { WindowManager } from './window.js';
 import { TerminalSession } from './terminal.js';
 import { Sidebar } from './sidebar.js';
+import { TaskManager } from './task-manager.js';
 import { FileExplorer } from './file-explorer.js';
 import { FileViewer } from './file-viewer.js';
 import { CodeEditor } from './code-editor.js';
@@ -153,6 +154,7 @@ class App {
     this._setupLayoutManager();
     this._setupUsage();
     this._setupTasks();
+    this._setupTaskManager();
     this._commandMode = new CommandMode(this, this.settings);
 
     // Listen for editor open/close requests (from editor-helper.sh via server HTTP→WebSocket)
@@ -1470,6 +1472,25 @@ class App {
   // Re-render sidebar if Tasks tab is open (cheap no-op for other tabs).
   _notifyTasksChanged() {
     if (this.sidebar?._activeTab === 'tasks') this.sidebar._render();
+    // If a task workspace is active, re-evaluate window visibility — a
+    // freshly-edited task.sessions / task.extras list could move sessions
+    // in or out of the active filter.
+    if (this.taskManager) this.taskManager.refresh();
+  }
+
+  // ── Task workspace (Phase 3 of task-centric refactor) ──
+  // The sidebar Tasks tab's onSelect handler now routes to this. Default
+  // mode (no task active) leaves the existing desktop visibility logic alone.
+  _setupTaskManager() {
+    this.taskManager = new TaskManager(this);
+    // Re-filter whenever windows change (new chat opened, session ended, etc).
+    const prev = this.wm.onWindowsChanged;
+    this.wm.onWindowsChanged = () => {
+      if (typeof prev === 'function') prev();
+      // Defer one frame so window state (e.g. `_openSpec`) is fully populated
+      // before we decide whether it belongs to the active task.
+      requestAnimationFrame(() => this.taskManager?.refresh());
+    };
   }
 
   // ── Task focus (pinned slots) ──

@@ -232,9 +232,12 @@ export function installSidebarRenderTasks(SidebarClass) {
   };
 
   proto._buildTaskCard = function(task, selected) {
+    const activeTaskId = this.app.taskManager?.getActiveTaskId() || null;
+    const isActive = activeTaskId === task.id;
     return renderTaskCard(task, {
       pinned: this.app.isTaskInFocus(task.id),
-      selected,
+      selected: selected || isActive,
+      active: isActive,
       subTask: !!task.part_of,
       onTogglePin: (id) => {
         if (this.app.isTaskInFocus(id)) this.app.unpinTaskFromFocus(id);
@@ -247,8 +250,17 @@ export function installSidebarRenderTasks(SidebarClass) {
         this._render();
       },
       onSelect: (id) => {
-        // Phase 2 — just visual selection. Workspace switching is Phase 3.
-        this._selectedTaskId = id;
+        // Phase 3 — clicking a task card activates its workspace. Clicking
+        // the *already-active* task toggles back to Default Workspace, which
+        // gives Walter a quick way to undo without going to the top bar.
+        const cur = this.app.taskManager?.getActiveTaskId() || null;
+        if (cur === id) {
+          this.app.taskManager?.clearActiveTask();
+          this._selectedTaskId = null;
+        } else {
+          this.app.taskManager?.setActiveTask(id);
+          this._selectedTaskId = id;
+        }
         this._render();
       },
       onOpenFile: (filePath) => {
