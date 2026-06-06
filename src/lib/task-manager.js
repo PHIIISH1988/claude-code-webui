@@ -51,16 +51,31 @@ import { DesktopManager } from './desktop-manager.js';
 
 const TASK_DESKTOP_ID = DesktopManager.TASK_DESKTOP_ID;
 
-function gridForCount(n) {
-  if (n <= 1) return 'maximize';
-  if (n === 2) return 'two-vertical';
-  if (n === 3) return 'three-columns';
-  if (n === 4) return 'quad';
-  if (n <= 6) return 'grid-2-3';
-  if (n <= 9) return 'grid-3-3';
-  if (n <= 12) return 'grid-3-4';
-  if (n <= 16) return 'grid-4-4';
-  return 'grid-4-' + Math.ceil(n / 4);
+/**
+ * Task workspace layout (Walter's spec 2026-06-06):
+ *
+ *   - Always 2 rows.
+ *   - cols = max(2, ceil((N+1)/2)) where N = number of session windows.
+ *     The +1 reserves a cell for the always-present Files window.
+ *     This guarantees 2x2 minimum even for a single session.
+ *   - Files window is pinned to the BOTTOM-LEFT cell, i.e. cell index
+ *     = cols (row-major: row 1, col 0).
+ *   - Sessions fill the remaining cells in order (0, 1, ..., cols-1,
+ *     cols+1, ..., 2*cols-1). Empty cells are left blank when N+1 < 2*cols.
+ *
+ * Sizing examples:
+ *   N=1: 2x2, sessions in [0],         Files in [2], empty [1,3]
+ *   N=2: 2x2, sessions in [0,1],       Files in [2], empty [3]
+ *   N=3: 2x2, sessions in [0,1,3],     Files in [2]
+ *   N=4: 2x3, sessions in [0,1,2,4],   Files in [3], empty [5]
+ *   N=5: 2x3, sessions in [0,1,2,4,5], Files in [3]
+ *   N=6: 2x4, sessions in [0,1,2,3,5,6,7], Files in [4], empty [7] — wait
+ *   ...
+ *   N=7: 2x4, sessions fill all non-Files cells
+ */
+function taskGridSize(sessionCount) {
+  const cols = Math.max(2, Math.ceil((sessionCount + 1) / 2));
+  return { rows: 2, cols };
 }
 
 export class TaskManager {
@@ -68,9 +83,21 @@ export class TaskManager {
     this.app = app;
     this._activeTaskId = null;
     this._members = new Map();
+    /** winId of the Files window pinned to bottom-left of task workspace. */
+    this._filesWinId = null;
     this._topBar = null;
     this._listeners = new Set();
     this._hookDesktopSwitch();
+  }
+
+  /** Derive the workspace folder for a task from its file path.
+   *  task._path = `.../{ctx}/tasks/T-...md` → `.../{ctx}`.
+   *  Used as the Files window's starting directory. Returns null when the
+   *  task wasn't loaded with a path (rare). */
+  _taskWorkspaceFolder(task) {
+    if (!task?._path) return null;
+    const m = task._path.match(/^(.*)\/tasks\/T-/);
+    return m ? m[1] : null;
   }
 
   getActiveTaskId() { return this._activeTaskId; }
@@ -89,6 +116,7 @@ export class TaskManager {
 
     if (!next) {
       this._teardownAllMembers();
+      this._closeTaskFiles();
       this._activeTaskId = null;
       const fallback = dm.desktops.find(d => d.id !== TASK_DESKTOP_ID);
       if (fallback) {
@@ -111,6 +139,7 @@ export class TaskManager {
     this._reconcileMembersAgainstActiveTask();
     this._borrowTaskWindows();
     this._spawnMissingTaskSessions();
+    this._ensureTaskFiles();
     this._scheduleAutoLayout();
     this._renderTopBar();
     this._notify();
@@ -339,6 +368,49 @@ export class TaskManager {
     }
   }
 
+  // ── Files window (always pinned to bottom-left) ──────────────
+
+  _ensureTaskFiles() {
+    const task = this.getActiveTask();
+    if (!task) return;
+    const folder = this._taskWorkspaceFolder(task);
+    if (!folder) return;
+    const wm = this.app.wm;
+    if (!wm) return;
+
+    // Reuse the existing Files window if we have one.
+    if (this._filesWinId) {
+      const win = wm.windows.get(this._filesWinId);
+      if (win && win._explorer) {
+        if (win._explorer.currentPath !== folder) {
+          try { win._explorer.navigate(folder); } catch {}
+        }
+        // Make sure it's on Task Desktop and visible.
+        if (win._desktopId !== TASK_DESKTOP_ID) win._desktopId = TASK_DESKTOP_ID;
+        this._show(win);
+        return;
+      }
+      // Window was closed externally — fall through and recreate.
+      this._filesWinId = null;
+    }
+
+    const winInfo = this.app.openFileExplorer(folder);
+    if (!winInfo) return;
+    winInfo._desktopId = TASK_DESKTOP_ID;
+    winInfo._taskFilesPin = true; // marker — never auto-borrowed/restored
+    this._filesWinId = winInfo.id;
+  }
+
+  _closeTaskFiles() {
+    if (!this._filesWinId) return;
+    const wm = this.app.wm;
+    const win = wm?.windows.get(this._filesWinId);
+    if (win) {
+      try { wm.closeWindow(this._filesWinId); } catch {}
+    }
+    this._filesWinId = null;
+  }
+
   // ── Layout ───────────────────────────────────────────────────
 
   _scheduleAutoLayout() {
@@ -351,12 +423,43 @@ export class TaskManager {
     const dm = this.app.desktopManager;
     if (!wm || !dm) return;
     if (dm.activeDesktopId !== TASK_DESKTOP_ID) return;
-    const visible = [...wm.windows.values()].filter(w =>
+
+    // Partition visible windows into sessions vs Files.
+    const all = [...wm.windows.values()].filter(w =>
       !w.isMinimized && !w._hiddenByDesktop && !w._hiddenByTask
       && w._desktopId === TASK_DESKTOP_ID
       && !(w._tabChain && w._tabChain.tabs[0] !== w.id));
-    if (visible.length === 0) return;
-    wm.applyLayout(gridForCount(visible.length));
+    const sessions = all.filter(w => w.type === 'chat' || w.type === 'terminal');
+    const filesWin = all.find(w => w.id === this._filesWinId && w.type === 'files');
+
+    if (sessions.length === 0 && !filesWin) return;
+
+    const { rows, cols } = taskGridSize(sessions.length);
+    wm.setGrid(rows, cols);
+    const totalCells = rows * cols;
+    const filesCellIdx = cols; // bottom-left = row 1, col 0
+
+    // Place Files first so it claims its cell. If for any reason Files
+    // isn't present, sessions cascade through the bottom-left cell as
+    // well rather than leaving an awkward hole.
+    if (filesWin) {
+      wm._positionToCell(filesWin, filesCellIdx, true);
+      setTimeout(() => wm._captureGridBounds(filesWin), 250);
+    }
+
+    let cellIdx = 0;
+    for (const sess of sessions) {
+      if (filesWin && cellIdx === filesCellIdx) cellIdx++;
+      if (cellIdx >= totalCells) break;
+      wm._positionToCell(sess, cellIdx, true);
+      const w = sess;
+      setTimeout(() => {
+        wm._captureGridBounds(w);
+        if (w._tabChain) wm._syncChainBounds(w._tabChain);
+      }, 250);
+      cellIdx++;
+    }
+    setTimeout(() => { wm._scheduleOverlapUpdate?.(); wm._notify?.(); }, 300);
   }
 
   // ── Visibility helpers ───────────────────────────────────────

@@ -250,17 +250,15 @@ export function installSidebarRenderTasks(SidebarClass) {
         this._render();
       },
       onSelect: (id) => {
-        // Phase 3 — clicking a task card activates its workspace. Clicking
-        // the *already-active* task toggles back to Default Workspace, which
-        // gives Walter a quick way to undo without going to the top bar.
+        // Clicking the same task is a no-op. Walter reported that the old
+        // toggle behaviour ('same click leaves task workspace') made it
+        // feel like the view was bouncing between TEMP and the task view
+        // when he absent-mindedly double-clicked. To leave, click any
+        // other desktop tab or the '× Leave' button in the top bar.
         const cur = this.app.taskManager?.getActiveTaskId() || null;
-        if (cur === id) {
-          this.app.taskManager?.clearActiveTask();
-          this._selectedTaskId = null;
-        } else {
-          this.app.taskManager?.setActiveTask(id);
-          this._selectedTaskId = id;
-        }
+        if (cur === id) return;
+        this.app.taskManager?.setActiveTask(id);
+        this._selectedTaskId = id;
         this._render();
       },
       onOpenFile: (filePath) => {
