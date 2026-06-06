@@ -888,9 +888,44 @@ function _saveRefreshedToken(creds) {
       fs.writeFileSync(credsPath, JSON.stringify(raw, null, 2));
       _oauthMtime = fs.statSync(credsPath).mtimeMs;
     }
-    // macOS: Keychain — let Claude Code handle persisting on next run.
-    // We update in-memory only; Claude Code will re-read Keychain and
-    // see the token isn't expired, skipping its own refresh.
+    // macOS: Keychain. Claude uses ROTATING refresh tokens — every refresh
+    // invalidates the prior refresh_token and issues a new pair. If we
+    // refresh in webUI and don't write the new tokens back, the next fresh
+    // Claude CLI process (e.g. a dtach session spawned after server
+    // restart, or Claude.app on next launch) reads the now-invalid old
+    // refresh_token from Keychain, attempts refresh, gets 'revoked', and
+    // prompts the user to re-login. That's the 'have to login every day'
+    // bug. The earlier comment 'let Claude Code handle persisting on next
+    // run' was wrong: Claude Code never gets the chance because webUI's
+    // refresh already burned the token.
+    //
+    // We preserve the rest of the Keychain payload (mcpOAuth and any other
+    // top-level fields Claude.app may add) by reading first, merging in
+    // claudeAiOauth, and writing back. Note: the JSON payload appears
+    // briefly in argv during the security add-generic-password call —
+    // acceptable on a single-user box, would want stdin piping for
+    // multi-user systems.
+    if (process.platform === 'darwin') {
+      try {
+        const user = os.userInfo().username;
+        let blob = {};
+        try {
+          const existing = execFileSync('security', [
+            'find-generic-password', '-s', 'Claude Code-credentials', '-a', user, '-w',
+          ], { encoding: 'utf-8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+          if (existing) blob = JSON.parse(existing);
+        } catch {}
+        blob.claudeAiOauth = { ...(blob.claudeAiOauth || {}), ...creds };
+        execFileSync('security', [
+          'add-generic-password', '-U',
+          '-s', 'Claude Code-credentials',
+          '-a', user,
+          '-w', JSON.stringify(blob),
+        ], { timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'] });
+      } catch (e) {
+        console.warn('[oauth] keychain write failed:', e?.message || e);
+      }
+    }
   } catch {}
   _oauthCreds = { ..._oauthCreds, ...creds };
 }
