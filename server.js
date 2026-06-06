@@ -771,7 +771,10 @@ syncStores.settings = new SyncStore('settings', path.join(__dirname, 'data', 'se
 syncStores.uploads = new SyncStore('uploads', path.join(__dirname, 'data', 'uploads-sync.json'), wss);
 // task-focus: which task IDs Walter has pinned to the Focus area, in order.
 // Cross-tab synced. Stored as {slots: [taskId, ...]} under key 'slots'.
-syncStores.taskFocus = new SyncStore('task-focus', path.join(__dirname, 'data', 'task-focus.json'), wss);
+// Bracket-key MUST match the store's `name` arg so getSyncStore('task-focus')
+// (called from GET /api/sync/:store) finds it. Earlier this used the
+// camelCase key syncStores.taskFocus and produced 404 on every page load.
+syncStores['task-focus'] = new SyncStore('task-focus', path.join(__dirname, 'data', 'task-focus.json'), wss);
 
 setupPersistence({ dataDir: path.join(__dirname, 'data'), wss, WS_OPEN, getSyncStore, activeSessions });
 app.use(persistenceRouter);

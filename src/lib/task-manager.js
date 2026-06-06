@@ -268,10 +268,13 @@ export class TaskManager {
     matches.sort((a, b) => {
       const r = statusRank(a) - statusRank(b);
       if (r !== 0) return r;
-      const ta = a.startedAt || '';
-      const tb = b.startedAt || '';
-      if (ta !== tb) return tb.localeCompare(ta);
-      return 0;
+      // startedAt is a NUMBER (mtime in ms), not an ISO string. Earlier
+      // version called tb.localeCompare(ta) which crashed the entire async
+      // setActiveTask chain — the click threw inside Promise and Walter saw
+      // zero reaction.
+      const ta = Number(a.startedAt) || 0;
+      const tb = Number(b.startedAt) || 0;
+      return tb - ta; // most recent first
     });
     const winner = matches[0];
     const backend = winner.backend || 'claude';
