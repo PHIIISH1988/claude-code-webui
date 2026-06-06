@@ -1489,8 +1489,25 @@ class App {
       if (typeof prev === 'function') prev();
       // Defer one frame so window state (e.g. `_openSpec`) is fully populated
       // before we decide whether it belongs to the active task.
-      requestAnimationFrame(() => this.taskManager?.refresh());
+      requestAnimationFrame(() => {
+        try { this.taskManager?.refresh(); }
+        catch (e) { console.error('[App] taskManager.refresh threw:', e); }
+      });
     };
+    // Global crash guards. Walter occasionally saw a 'white screen with
+    // even the toolbar gone' after rapid task switches — that pattern
+    // means an uncaught throw killed mid-render. These handlers won't
+    // FIX the underlying bug but will surface its stack instead of
+    // swallowing it.
+    if (!window._taskMgrErrorHandlerInstalled) {
+      window._taskMgrErrorHandlerInstalled = true;
+      window.addEventListener('error', (e) => {
+        console.error('[GLOBAL ERROR]', e.error || e.message, e);
+      });
+      window.addEventListener('unhandledrejection', (e) => {
+        console.error('[UNHANDLED REJECTION]', e.reason, e);
+      });
+    }
   }
 
   // ── Task focus (pinned slots) ──

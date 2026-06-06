@@ -126,31 +126,44 @@ export class TaskManager {
   onActiveTaskChanged(fn) { this._listeners.add(fn); return () => this._listeners.delete(fn); }
 
   async setActiveTask(taskId) {
-    const next = taskId || null;
-    if (this._activeTaskId === next) {
-      console.log('[TaskManager] setActiveTask noop — already active:', next);
+    // Serialize concurrent calls. setActiveTask is async (it awaits
+    // dm.switchTo). If Walter clicks task A and then B before A's await
+    // returns, both calls used to run their reconcile/borrow/spawn/layout
+    // passes against the shared state concurrently — one call would set
+    // window._desktopId to TASK while the other set it back to origin,
+    // leaving the workspace blank ('white screen, toolbar gone' bug).
+    //
+    // Lock-and-queue: if a call is in flight, store the latest taskId in
+    // _queuedTask and let the in-flight call pick it up when it finishes.
+    // Intermediate clicks are dropped — only the latest taskId is honored,
+    // which matches Walter's intent ('I clicked B last, take me to B').
+    if (this._setActiveInFlight) {
+      this._queuedTask = taskId;
       return;
     }
-
-    const dm = this.app.desktopManager;
-    if (!dm) { console.warn('[TaskManager] no desktopManager'); return; }
-
-    const task = next ? (this.app._taskById?.get(next) || null) : null;
-    const allSessLen = this.app.sidebar?._allSessions?.length || 0;
-    console.log('[TaskManager] setActiveTask →', next,
-      '\n  task object:', task,
-      '\n  context_folder:', task?.context_folder,
-      '\n  sidebar._allSessions.length:', allSessLen);
-
-    if (next && task) {
-      const allowed = this.getTaskSessionKeys(task);
-      console.log('[TaskManager] resolved session keys:', [...allowed]);
-      if (allowed.size === 0) {
-        console.warn('[TaskManager] EMPTY allowed set — inference returned nothing. '
-          + 'Either sidebar._allSessions not loaded yet or no session matches '
-          + 'context_folder:', task.context_folder);
+    this._setActiveInFlight = true;
+    try {
+      await this._setActiveTaskInner(taskId);
+    } catch (e) {
+      console.error('[TaskManager] setActiveTask threw — UI may be partial:', e);
+      this._inProgrammaticSwitch = false;
+    } finally {
+      this._setActiveInFlight = false;
+      if (Object.prototype.hasOwnProperty.call(this, '_queuedTask')) {
+        const next = this._queuedTask;
+        delete this._queuedTask;
+        // Tail-call into ourselves to process the queued click.
+        this.setActiveTask(next);
       }
     }
+  }
+
+  async _setActiveTaskInner(taskId) {
+    const next = taskId || null;
+    if (this._activeTaskId === next) return;
+
+    const dm = this.app.desktopManager;
+    if (!dm) return;
 
     if (!next) {
       this._teardownAllMembers();
@@ -454,7 +467,6 @@ export class TaskManager {
         parentThreadId: sess.parentThreadId || null,
       };
       this._markSpawning(key);
-      console.log('[TaskManager] spawn →', key, 'status:', sess.status, 'webuiId:', sess.webuiId);
       try {
         if (sess.status === 'live' && sess.webuiId) {
           this.app.attachSession(sess.webuiId, sess.webuiName || sess.name, sess.cwd,
@@ -463,7 +475,6 @@ export class TaskManager {
           this.app.resumeSession(sess.sessionId, sess.cwd, sess.name,
             { mode: 'chat', ...agentOpts });
         } else {
-          console.warn('[TaskManager] skipped — status not auto-handled:', sess.status);
           // Status we don't auto-handle (tmux/external) — release the
           // marker so we don't block future explicit retries.
           this._clearSpawnMarker(key);
@@ -572,17 +583,20 @@ export class TaskManager {
   // ── Visibility helpers ───────────────────────────────────────
 
   _show(win) {
+    if (!win?.element) return;
     if (win._hiddenByTask) win._hiddenByTask = false;
     if (win._hiddenByDesktop) win._hiddenByDesktop = false;
     win.element.style.visibility = '';
     win.element.style.pointerEvents = '';
   }
   _hideByDesktop(win) {
+    if (!win?.element) return;
     win._hiddenByDesktop = true;
     win.element.style.visibility = 'hidden';
     win.element.style.pointerEvents = 'none';
   }
   _hideByTask(win) {
+    if (!win?.element) return;
     win._hiddenByTask = true;
     win.element.style.visibility = 'hidden';
     win.element.style.pointerEvents = 'none';
