@@ -147,10 +147,26 @@ export class TaskManager {
 
   clearActiveTask() { return this.setActiveTask(null); }
 
+  /**
+   * Re-evaluate everything for the active task: reconcile membership, borrow
+   * any new windows, respawn missing sessions, re-layout.
+   *
+   * This is the same code path setActiveTask runs on a fresh activation,
+   * minus the desktop switch. Called from:
+   *   - sidebar onSelect when the user re-clicks the already-active task
+   *     (Walter's "I cleared all sessions, want them back" case)
+   *   - wm.onWindowsChanged hook in app._setupTaskManager whenever a window
+   *     appears/disappears (auto-resumed sessions arriving async, manual
+   *     close inside the workspace — both should re-layout to the new
+   *     session count, e.g. 2x3 → 2x2 when going from 4 sessions to 1)
+   */
   refresh() {
     if (this._activeTaskId) {
       this._reconcileMembersAgainstActiveTask();
       this._borrowTaskWindows();
+      this._spawnMissingTaskSessions();
+      this._ensureTaskFiles();
+      this._scheduleAutoLayout();
     }
     this._renderTopBar();
   }

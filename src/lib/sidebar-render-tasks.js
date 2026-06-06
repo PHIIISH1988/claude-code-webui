@@ -250,13 +250,17 @@ export function installSidebarRenderTasks(SidebarClass) {
         this._render();
       },
       onSelect: (id) => {
-        // Clicking the same task is a no-op. Walter reported that the old
-        // toggle behaviour ('same click leaves task workspace') made it
-        // feel like the view was bouncing between TEMP and the task view
-        // when he absent-mindedly double-clicked. To leave, click any
-        // other desktop tab or the '× Leave' button in the top bar.
+        // Clicking the same task is no longer a leave — it's a REFRESH.
+        // Walter's case: he closed every session window inside the active
+        // task workspace and then re-clicked the same task expecting them
+        // to come back. refresh() re-runs spawn-missing, so any session
+        // in the task's set that doesn't currently have a window gets
+        // resumed/attached again.
         const cur = this.app.taskManager?.getActiveTaskId() || null;
-        if (cur === id) return;
+        if (cur === id) {
+          this.app.taskManager?.refresh();
+          return;
+        }
         this.app.taskManager?.setActiveTask(id);
         this._selectedTaskId = id;
         this._render();
