@@ -31,6 +31,25 @@ export class DesktopManager {
   get activeDesktopId() { return this._activeId; }
   get desktops() { return this._desktops; }
 
+  /**
+   * Task workspace lives on this special system desktop. Created lazily on
+   * first load. Never deletable. Sessions associated with the active task
+   * are temporarily "borrowed" into this desktop (their _desktopId is set
+   * to TASK_DESKTOP_ID) and restored to their original desktop when the
+   * user navigates away. See task-manager.js.
+   */
+  static TASK_DESKTOP_ID = '__task_view__';
+  static TASK_DESKTOP_NAME = '🎯 Tasks';
+
+  _ensureTaskDesktop() {
+    if (this._desktops.some(d => d.id === DesktopManager.TASK_DESKTOP_ID)) return;
+    this._desktops.push({
+      id: DesktopManager.TASK_DESKTOP_ID,
+      name: DesktopManager.TASK_DESKTOP_NAME,
+      system: true,
+    });
+  }
+
   // ── Lifecycle ──
 
   /** Load desktops from server layout data. Called from LayoutManager.loadAutoSave(). */
@@ -72,7 +91,18 @@ export class DesktopManager {
       }
     }
 
+    // Always ensure the system Task Desktop exists. Has to live AFTER the
+    // user-desktops migration block above so the initial _activeId stays
+    // on a user desktop, not on the task workspace.
+    this._ensureTaskDesktop();
+
     this._renderSwitcher();
+  }
+
+  /** Reject delete on system desktops. */
+  isSystemDesktop(id) {
+    const d = this._desktops.find(x => x.id === id);
+    return !!(d && d.system);
   }
 
   // ── Desktop CRUD ──
@@ -88,6 +118,7 @@ export class DesktopManager {
 
   deleteDesktop(desktopId) {
     if (this._desktops.length <= 1) return; // can't delete last desktop
+    if (this.isSystemDesktop(desktopId)) return; // can't delete Task Desktop
     const idx = this._desktops.findIndex(d => d.id === desktopId);
     if (idx < 0) return;
 
