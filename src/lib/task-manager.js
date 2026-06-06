@@ -127,10 +127,30 @@ export class TaskManager {
 
   async setActiveTask(taskId) {
     const next = taskId || null;
-    if (this._activeTaskId === next) return;
+    if (this._activeTaskId === next) {
+      console.log('[TaskManager] setActiveTask noop — already active:', next);
+      return;
+    }
 
     const dm = this.app.desktopManager;
-    if (!dm) return;
+    if (!dm) { console.warn('[TaskManager] no desktopManager'); return; }
+
+    const task = next ? (this.app._taskById?.get(next) || null) : null;
+    const allSessLen = this.app.sidebar?._allSessions?.length || 0;
+    console.log('[TaskManager] setActiveTask →', next,
+      '\n  task object:', task,
+      '\n  context_folder:', task?.context_folder,
+      '\n  sidebar._allSessions.length:', allSessLen);
+
+    if (next && task) {
+      const allowed = this.getTaskSessionKeys(task);
+      console.log('[TaskManager] resolved session keys:', [...allowed]);
+      if (allowed.size === 0) {
+        console.warn('[TaskManager] EMPTY allowed set — inference returned nothing. '
+          + 'Either sidebar._allSessions not loaded yet or no session matches '
+          + 'context_folder:', task.context_folder);
+      }
+    }
 
     if (!next) {
       this._teardownAllMembers();
@@ -431,6 +451,7 @@ export class TaskManager {
         parentThreadId: sess.parentThreadId || null,
       };
       this._markSpawning(key);
+      console.log('[TaskManager] spawn →', key, 'status:', sess.status, 'webuiId:', sess.webuiId);
       try {
         if (sess.status === 'live' && sess.webuiId) {
           this.app.attachSession(sess.webuiId, sess.webuiName || sess.name, sess.cwd,
@@ -439,11 +460,13 @@ export class TaskManager {
           this.app.resumeSession(sess.sessionId, sess.cwd, sess.name,
             { mode: 'chat', ...agentOpts });
         } else {
+          console.warn('[TaskManager] skipped — status not auto-handled:', sess.status);
           // Status we don't auto-handle (tmux/external) — release the
           // marker so we don't block future explicit retries.
           this._clearSpawnMarker(key);
         }
-      } catch {
+      } catch (e) {
+        console.warn('[TaskManager] spawn threw:', e);
         this._clearSpawnMarker(key);
       }
     }
