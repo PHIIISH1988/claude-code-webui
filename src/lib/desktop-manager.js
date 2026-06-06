@@ -355,16 +355,19 @@ export class DesktopManager {
       let deskHasWaiting = false;
       if (desk.id === this._activeId) {
         for (const [id, win] of this.app.wm.windows) {
-          if (win._desktopId === desk.id && win.gridBounds && !win._hiddenByDesktop && !win.isMinimized) {
+          if (win._desktopId === desk.id && win.gridBounds && !win._hiddenByDesktop && !win._hiddenByTask && !win.isMinimized) {
             const waiting = win.element.classList.contains('window-waiting');
             winEntries.push({ id, gridBounds: win.gridBounds, waiting });
             if (waiting) deskHasWaiting = true;
           }
         }
       } else {
-        // Non-active: try live DOM windows first (they exist after first switch)
+        // Non-active: try live DOM windows first (they exist after first switch).
+        // Filter _hiddenByTask too — task-workspace limbo'd auto-spawn
+        // windows must not surface as rectangles on the Task Desktop's
+        // preview (they're invisible in the actual workspace).
         for (const [id, win] of this.app.wm.windows) {
-          if (win._desktopId === desk.id && win.gridBounds && !win.isMinimized) {
+          if (win._desktopId === desk.id && win.gridBounds && !win._hiddenByTask && !win.isMinimized) {
             const waiting = win.element.classList.contains('window-waiting');
             winEntries.push({ id, gridBounds: win.gridBounds, waiting });
             if (waiting) deskHasWaiting = true;

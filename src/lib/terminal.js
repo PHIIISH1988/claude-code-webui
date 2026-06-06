@@ -511,6 +511,18 @@ class TerminalSession {
   }
 
   focus() { this.terminal.focus(); this._setBell(false); this._setWaiting(false); }
+
+  /**
+   * Used by TaskManager's idle-close logic. Conservative by design: if
+   * we have NOT yet seen an OSC title update from Claude (so _claudeIdle
+   * is undefined), we treat the terminal as busy — better to keep a
+   * harmless terminal alive than to kill one that's mid-computation.
+   * Only an explicitly-observed idle (ch === 0x2733) returns false.
+   */
+  isBusy() {
+    return this._claudeIdle !== true;
+  }
+
   dispose() {
     this._ro.disconnect(); this.terminal.dispose(); this.ws.off(this.sessionId);
     if (this._pasteTarget) this._pasteTarget.remove();

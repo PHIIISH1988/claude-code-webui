@@ -134,6 +134,14 @@ const SETTINGS_SCHEMA = {
     category: 'Session', liveApply: true,
   },
 
+  // ── Task workspace ──
+  'task.autoCloseIdleAfter': {
+    type: 'number', default: 30000, min: 0, max: 3600000, step: 1000,
+    label: 'Auto-close idle task sessions after (ms)',
+    description: 'When you switch away from a Task workspace, sessions auto-spawned by it are kept hidden ("limbo") and torn down after this many milliseconds of inactivity. Busy sessions (streaming / running background tasks / active /goal / pending permission / unsent draft) are never closed regardless of this value. Set to 0 to disable auto-close entirely (keeps every spawned session alive forever — old behaviour).',
+    category: 'Session', liveApply: true,
+  },
+
   // ── Claude ──
   'claude.defaultModel': {
     type: 'enum', default: '', combobox: true,

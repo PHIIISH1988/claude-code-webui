@@ -103,6 +103,22 @@ export class TaskManager {
      * split below is the primary fix; _spawningKeys is the belt-and-
      * braces backup. */
     this._spawningKeys = new Map(); // key → setTimeout handle
+    /**
+     * Pending idle-close timers. Keyed by winId. When a task workspace
+     * member becomes orphan (its session isn't in the new task's set)
+     * and the session is currently IDLE (per isBusy()), we schedule a
+     * 30-second close. While the timer is alive: limbo state stays as
+     * usual. On fire: re-check busy; close only if still idle, else
+     * re-schedule. Cancelled when the user returns to the task that
+     * needs this session. Hard timeout configurable via setting
+     * task.autoCloseIdleAfter (ms, 0 = never close).
+     *
+     * Walter explicitly required ZERO risk of killing in-flight work:
+     * we use server-protocol-driven signals (streaming flag, active
+     * background tasks, /goal state, pending permission, draft text)
+     * and re-check at fire time, never relying on cached state.
+     */
+    this._pendingCloses = new Map(); // winId → timeoutHandle
     this._topBar = null;
     this._listeners = new Set();
     this._hookDesktopSwitch();
@@ -369,29 +385,104 @@ export class TaskManager {
 
     for (const [winId, meta] of [...this._members]) {
       const win = wm.windows.get(winId);
-      if (!win) { this._members.delete(winId); continue; }
+      if (!win) { this._members.delete(winId); this._cancelIdleClose(winId); continue; }
       const key = this._sessionKeyForWindow(winId, win);
       const isMatch = key && allowed.has(key);
 
       if (isMatch) {
         meta.taskId = this._activeTaskId;
         this._show(win);
+        // Coming back into a task this session belongs to — cancel any
+        // pending close so we don't kill it right after revealing it.
+        this._cancelIdleClose(winId);
       } else {
         if (meta.borrowed) {
           win._desktopId = meta.origDesktopId || (dm?.desktops[0]?.id);
           this._hideByDesktop(win);
           this._members.delete(winId);
+          this._cancelIdleClose(winId);
         } else {
+          // Auto-spawn we created. Limbo as before, but ALSO schedule an
+          // idle close so it doesn't sit forever consuming a claude
+          // process. Safe because _maybeCloseIfIdle re-checks busy state
+          // at fire time and re-arms if anything's running.
           this._hideByTask(win);
+          this._scheduleIdleClose(winId);
         }
       }
     }
+  }
+
+  // ── Idle-close lifecycle for orphaned auto-spawn members ─────
+
+  /** Read configured idle window from settings; 0 disables the feature. */
+  _idleCloseMs() {
+    const s = this.app.settings?.get('task.autoCloseIdleAfter');
+    const n = Number(s);
+    if (!Number.isFinite(n) || n < 0) return 30000;
+    return n;
+  }
+
+  _scheduleIdleClose(winId) {
+    if (this._pendingCloses.has(winId)) return; // already scheduled
+    const ms = this._idleCloseMs();
+    if (ms === 0) return; // user disabled auto-close entirely
+    const t = setTimeout(() => this._maybeCloseIfIdle(winId), ms);
+    this._pendingCloses.set(winId, t);
+  }
+
+  _cancelIdleClose(winId) {
+    const t = this._pendingCloses.get(winId);
+    if (t) { clearTimeout(t); this._pendingCloses.delete(winId); }
+  }
+
+  /**
+   * Fired by the scheduled timer. Re-check the session's busy state at
+   * the LAST possible moment, then either close or reschedule. This is
+   * the load-bearing safety guarantee Walter required: we never close a
+   * window because it was idle 30 s ago — only because it's idle RIGHT
+   * NOW.
+   */
+  _maybeCloseIfIdle(winId) {
+    this._pendingCloses.delete(winId);
+    const wm = this.app.wm;
+    const win = wm?.windows.get(winId);
+    if (!win) {
+      this._members.delete(winId);
+      return;
+    }
+    // Only close orphaned auto-spawns. If the window became active
+    // again (matched a re-clicked task) it was un-hidden by reconcile
+    // and we should leave it alone.
+    if (!win._hiddenByTask) {
+      return;
+    }
+    const session = this.app.sessions?.get(winId);
+    const busy = typeof session?.isBusy === 'function' ? session.isBusy() : true;
+    if (busy) {
+      // Still working. Schedule another check after the same idle window.
+      this._scheduleIdleClose(winId);
+      return;
+    }
+    // Safe to close. closeWindow goes through wm which honours the
+    // user's closeBehavior setting (terminate kills the dtach session;
+    // detach keeps it alive for later resume). For auto-spawned task
+    // windows terminate is appropriate — _spawnMissingTaskSessions will
+    // recreate them on next task entry.
+    try { wm.closeWindow(winId); } catch (e) {
+      console.warn('[TaskManager] idle close failed for', winId, e);
+    }
+    this._members.delete(winId);
   }
 
   _teardownAllMembers() {
     const wm = this.app.wm;
     const dm = this.app.desktopManager;
     if (!wm || !dm) return;
+    // Cancel any pending idle close — Walter has left the task
+    // workspace entirely, so any scheduled close needs to wait until he
+    // returns and the orphan judgement gets re-done with fresh context.
+    for (const winId of this._pendingCloses.keys()) this._cancelIdleClose(winId);
     for (const [winId, meta] of this._members) {
       const win = wm.windows.get(winId);
       if (!win) continue;
@@ -442,6 +533,9 @@ export class TaskManager {
         if (k === key) {
           this._show(win);
           meta.taskId = this._activeTaskId;
+          // Reviving a limbo'd window for a re-entered task — cancel its
+          // pending close so we don't kill it shortly after revealing it.
+          this._cancelIdleClose(winId);
           revived = true;
           break;
         }

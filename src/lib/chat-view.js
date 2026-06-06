@@ -820,6 +820,7 @@ class ChatView {
 
   // _showTyping / _hideTyping delegate to ChatInput (normal) or readOnly _streamStatus
   _showTyping(label = 'thinking...') {
+    this._isStreaming = true;
     if (this._chatInput) { this._chatInput.showTyping(label); return; }
     // readOnly fallback
     if (!this._streamStatus) return;
@@ -828,11 +829,41 @@ class ChatView {
   }
 
   _hideTyping() {
+    this._isStreaming = false;
     if (this._chatInput) { this._chatInput.hideTyping(); return; }
     // readOnly fallback
     if (!this._streamStatus) return;
     this._streamStatus.classList.add('hidden');
     this._streamStatus.innerHTML = '';
+  }
+
+  /**
+   * Return true iff this chat session is in any kind of "in flight" state
+   * that would make terminating it unsafe — used by TaskManager's idle
+   * close logic to decide whether to release the chat-wrapper process
+   * when the user switches away from a task workspace.
+   *
+   * Any positive answer is sticky-safe: we'd rather keep an idle session
+   * alive a little longer than kill a working one.
+   *
+   *   - streaming   (turn in flight on server)
+   *   - any background task (Agent / `run_in_background` bash)
+   *   - goal active  (server's MaybeContinueIfIdle will re-fire after each turn)
+   *   - draft text   (user is composing)
+   *   - pending permission card waiting for user input
+   */
+  isBusy() {
+    if (this._isStreaming) return true;
+    if (this._statusBar?._activeTasks?.size > 0) return true;
+    if (this._statusBar?._goal != null) return true;
+    const draft = this._chatInput?._textarea?.value;
+    if (draft && draft.trim().length > 0) return true;
+    if (this._elements) {
+      for (const el of this._elements.values()) {
+        if (el?.querySelector?.('.chat-perm-pending')) return true;
+      }
+    }
+    return false;
   }
 
   _onGoalUpdated(goal, elapsed) {
