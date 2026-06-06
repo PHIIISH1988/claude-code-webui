@@ -1,0 +1,75 @@
+/* Custom UI: desktop previews at top, compact taskbar
+ * Pure CSS approach — no DOM relocation, preserves all event bindings.
+ */
+
+/* ── Reposition desktop previews to toolbar area ── */
+
+/* Pull desktop-previews out of taskbar flow and fix to top */
+#desktop-previews {
+  position: fixed !important;
+  top: 0; left: 50%; transform: translateX(-50%);
+  z-index: 100000;
+  height: var(--toolbar-height, 40px);
+  display: flex !important; align-items: center; gap: 4px;
+  pointer-events: auto;
+  padding: 0 8px;
+}
+/* Ensure preview wrappers capture all clicks */
+#desktop-previews .desktop-preview-wrapper {
+  pointer-events: auto;
+  cursor: pointer;
+  position: relative;
+  z-index: 1;
+}
+
+/* Shrink previews to fit toolbar height */
+#desktop-previews .desktop-preview {
+  width: 50px !important; height: 26px !important;
+  border-radius: 3px;
+}
+#desktop-previews .desktop-preview-wrapper {
+  gap: 0 !important;
+}
+#desktop-previews .desktop-preview-label {
+  font-size: 7px !important; line-height: 1;
+  max-width: 50px !important;
+}
+#desktop-previews .desktop-preview-add {
+  width: 18px !important; height: 26px !important;
+  border-radius: 3px; font-size: 12px;
+  margin-bottom: 0 !important;
+}
+
+/* Layout presets: keep in toolbar-center, shift left so desktop previews have center */
+.toolbar-center {
+  justify-content: flex-start !important;
+  padding-left: 8px;
+}
+
+/* ── Compact taskbar: hide most content, keep just status ── */
+
+/* Hide taskbar items and resize handle */
+#taskbar-items { display: none !important; }
+#taskbar-resize-handle { display: none !important; }
+#cmd-indicator { display: none !important; }
+
+/* Minimal taskbar: just usage + window count, thin */
+#taskbar {
+  height: 24px !important; min-height: 24px !important;
+  padding: 0 12px !important;
+  justify-content: flex-end !important;
+}
+#taskbar .taskbar-right-section {
+  gap: 8px;
+}
+#taskbar .taskbar-usage {
+  transform: scale(0.75); transform-origin: right center;
+}
+#taskbar #active-count {
+  font-size: 10px;
+}
+
+/* Context menus from desktop previews: open downward since previews are at top */
+#desktop-previews .context-menu {
+  bottom: auto !important;
+}

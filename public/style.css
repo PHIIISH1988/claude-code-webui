@@ -210,6 +210,125 @@ html, body {
   border-left: 3px solid var(--accent);
   background: var(--bg-hover);
 }
+
+/* ── Tasks tab (Phase 2 of task-centric refactor) ───────────────── */
+
+.task-tools-row {
+  display: flex; align-items: center; gap: 4px;
+  padding: 6px 8px; font-size: 10px; color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+.task-tools-btn {
+  background: var(--bg-input); color: var(--text);
+  border: 1px solid var(--border); border-radius: 3px;
+  padding: 2px 6px; font-size: 11px; cursor: pointer;
+}
+.task-tools-btn:hover { background: var(--bg-hover); border-color: var(--border-active); }
+.task-tools-popover {
+  background: var(--bg-input); border: 1px solid var(--border-active);
+  border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  min-width: 120px; padding: 4px 0; font-size: 11px;
+}
+.task-tools-popover-title {
+  padding: 2px 10px; color: var(--text-dim); font-size: 10px;
+  border-bottom: 1px solid var(--border); margin-bottom: 2px;
+}
+.task-tools-popover-item {
+  padding: 4px 10px; cursor: pointer; color: var(--text);
+}
+.task-tools-popover-item:hover { background: var(--bg-hover); }
+.task-tools-popover-item.active { background: var(--accent); color: #fff; }
+
+.task-focus-area {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--bg);
+  border-bottom: 2px solid var(--accent);
+  padding-bottom: 4px;
+}
+.task-focus-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 8px 4px; font-size: 11px; color: var(--accent);
+}
+.task-focus-title { font-weight: 600; }
+.task-focus-count {
+  background: var(--accent); color: #fff;
+  font-size: 10px; padding: 1px 6px; border-radius: 8px;
+}
+.task-focus-empty {
+  padding: 6px 10px 8px; font-size: 10px; color: var(--text-dim);
+  font-style: italic;
+}
+
+.task-list-area { padding-top: 4px; }
+
+.task-group { margin-bottom: 4px; }
+.task-group-header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 8px; cursor: pointer;
+  font-size: 11px; font-weight: 500; color: var(--text-secondary);
+  background: var(--bg-subtle); user-select: none;
+}
+.task-group-header:hover { background: var(--bg-hover); }
+.task-group-chevron {
+  display: inline-block; transition: transform 0.15s;
+  font-size: 9px; color: var(--text-dim);
+}
+.task-group.collapsed .task-group-chevron { transform: rotate(-90deg); }
+.task-group.collapsed .task-group-body { display: none; }
+.task-group-name { flex: 1; }
+.task-group-count {
+  font-size: 10px; color: var(--text-dim);
+  background: var(--bg-input); padding: 0 6px; border-radius: 8px;
+}
+
+.task-item-card {
+  display: flex; align-items: center; gap: 4px;
+  padding: 4px 8px; margin: 1px 0;
+  border-left: 2px solid transparent;
+  cursor: pointer; font-size: 11px;
+  color: var(--text); transition: background 0.1s;
+}
+.task-item-card:hover { background: var(--bg-hover); }
+.task-item-card.selected {
+  background: var(--bg-hover); border-left-color: var(--accent);
+}
+.task-item-card.pinned { background: rgba(231,76,60,0.08); }
+.task-item-card.subtask { padding-left: 20px; }
+
+.task-pin-btn {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-dim); font-size: 13px; padding: 0 2px;
+  width: 18px; text-align: center;
+}
+.task-pin-btn:hover { color: var(--accent); }
+.task-pin-btn.active { color: var(--accent); }
+
+.task-priority-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.task-card-title {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.task-status-badge {
+  font-size: 9px; font-weight: 600;
+  padding: 1px 5px; border-radius: 3px;
+  text-transform: uppercase; flex-shrink: 0;
+}
+.badge-task-open       { background: rgba(189,195,199,0.2); color: var(--text-secondary); }
+.badge-task-wip        { background: rgba(243,156,18,0.2);  color: #f39c12; }
+.badge-task-blocked    { background: rgba(231,76,60,0.2);   color: #e74c3c; }
+.badge-task-done       { background: rgba(46,204,113,0.2);  color: #2ecc71; }
+.badge-task-proposed   { background: rgba(155,89,182,0.2);  color: #9b59b6; }
+.badge-task-abandoned  { background: rgba(127,140,141,0.2); color: #7f8c8d; }
+.badge-task-missing    { background: rgba(231,76,60,0.3);   color: #e74c3c; }
+
+.task-parse-error {
+  color: #f39c12; font-size: 11px; cursor: help;
+}
 .session-item-card.highlighted.highlight-flash { animation: highlight-flash 0.4s ease-out; }
 @keyframes highlight-flash { 0% { background: var(--accent-dim, rgba(99,102,241,0.25)); } 100% { background: var(--bg-hover); } }
 

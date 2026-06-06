@@ -769,6 +769,9 @@ function getSyncStore(name) { return syncStores[name]; }
 syncStores.drafts = new SyncStore('drafts', path.join(__dirname, 'data', 'drafts.json'), wss);
 syncStores.settings = new SyncStore('settings', path.join(__dirname, 'data', 'settings-sync.json'), wss);
 syncStores.uploads = new SyncStore('uploads', path.join(__dirname, 'data', 'uploads-sync.json'), wss);
+// task-focus: which task IDs Walter has pinned to the Focus area, in order.
+// Cross-tab synced. Stored as {slots: [taskId, ...]} under key 'slots'.
+syncStores.taskFocus = new SyncStore('task-focus', path.join(__dirname, 'data', 'task-focus.json'), wss);
 
 setupPersistence({ dataDir: path.join(__dirname, 'data'), wss, WS_OPEN, getSyncStore, activeSessions });
 app.use(persistenceRouter);

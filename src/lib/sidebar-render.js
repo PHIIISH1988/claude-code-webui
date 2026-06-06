@@ -16,7 +16,11 @@ export function installSidebarRender(SidebarClass) {
   // when the group enters viewport, and replaces with a height placeholder
   // when it scrolls far away — keeping DOM node count low.
   proto._setupLazyFolders = function() {
-    if (this._folderObserver) this._folderObserver.disconnect();
+    // Idempotent — observer must survive across re-renders. Disconnecting and
+    // recreating here clears all .observe() targets registered by _observeFolder
+    // earlier in the same render pass, leaving the new observer with nothing to
+    // watch → folders in Groups tab never expand on click.
+    if (this._folderObserver) return;
     const scrollRoot = this.listEl.closest('.sidebar-section');
     this._folderObserver = new IntersectionObserver((entries) => {
       for (const entry of entries) {
@@ -51,6 +55,7 @@ export function installSidebarRender(SidebarClass) {
     // Store items for lazy re-render
     sessionsDiv._lazyItems = items;
     sessionsDiv.dataset.lazy = 'pending';
+    this._setupLazyFolders(); // ensure observer exists before observe() — first render had none
     if (this._folderObserver) this._folderObserver.observe(group);
   };
 

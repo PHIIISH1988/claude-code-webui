@@ -4,6 +4,7 @@ import { createAgentKindIcon, createBackendIcon, getAgentKindMeta, getBackendMet
 import { installSidebarState } from './sidebar-state.js';
 import { installSidebarRender } from './sidebar-render.js';
 import { installSidebarRenderMobile } from './sidebar-render-mobile.js';
+import { installSidebarRenderTasks } from './sidebar-render-tasks.js';
 
 class Sidebar {
   constructor(app) {
@@ -137,7 +138,12 @@ class Sidebar {
     groupsTab.textContent = 'Groups';
     groupsTab.dataset.tab = 'groups';
     groupsTab.onclick = () => { this._activeTab = 'groups'; this._updateTabs(); this._render(); };
-    tabBar.append(foldersTab, groupsTab);
+    const tasksTab = document.createElement('button');
+    tasksTab.className = 'sidebar-tab';
+    tasksTab.textContent = 'Tasks';
+    tasksTab.dataset.tab = 'tasks';
+    tasksTab.onclick = () => { this._activeTab = 'tasks'; this._updateTabs(); this._render(); };
+    tabBar.append(foldersTab, groupsTab, tasksTab);
     section.insertBefore(tabBar, section.firstChild);
   }
 
@@ -542,7 +548,8 @@ class Sidebar {
       if (this._activeTab === 'groups') this._renderMobileGroupList(sessions);
       else this._renderMobileFolderList(sessions);
     } else {
-      if (this._activeTab === 'groups') this._renderByGroups(sessions);
+      if (this._activeTab === 'tasks') this._renderTasks();
+      else if (this._activeTab === 'groups') this._renderByGroups(sessions);
       else this._renderGrouped(sessions);
     }
   }
@@ -555,4 +562,5 @@ class Sidebar {
 installSidebarState(Sidebar);
 installSidebarRender(Sidebar);
 installSidebarRenderMobile(Sidebar);
+installSidebarRenderTasks(Sidebar);
 export { Sidebar };

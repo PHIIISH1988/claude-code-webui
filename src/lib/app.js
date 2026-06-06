@@ -10,7 +10,7 @@ import { CodeEditor } from './code-editor.js';
 import { LayoutManager } from './layout.js';
 import { ChatView } from './chat-view.js';
 import { Resizer } from './resizer.js';
-import { createPopover, fetchJson, initStateSync } from './utils.js';
+import { createPopover, fetchJson, initStateSync, getStateSync } from './utils.js';
 import { MobileNav } from './mobile-nav.js';
 import { setupDirAutocomplete } from './autocomplete.js';
 import { getAvailableFonts } from './terminal.js';
@@ -152,6 +152,7 @@ class App {
     this._setupGridConfig();
     this._setupLayoutManager();
     this._setupUsage();
+    this._setupTasks();
     this._commandMode = new CommandMode(this, this.settings);
 
     // Listen for editor open/close requests (from editor-helper.sh via server HTTP→WebSocket)
@@ -1413,6 +1414,92 @@ class App {
     if (!themes) return;
     this._applyCustomThemesFromServer(themes);
     this.themeManager.applyPendingTheme();
+  }
+
+  // ── Tasks (claude-ops integration, Phase 2 of task-centric refactor) ──
+  // The sidebar Tasks tab and Focus area read from this._allTasks (a snapshot
+  // of all tasks currently on disk under ~/Documents/claude-ops/workspaces/).
+  // Server is authoritative; we fetch once at startup, then patch incrementally
+  // via WS 'task-updated' / 'task-deleted' broadcasts.
+  _setupTasks() {
+    /** @type {Array<object>} */
+    this._allTasks = [];
+    /** @type {Map<string, object>} taskId → task */
+    this._taskById = new Map();
+
+    // WS patches (server broadcasts these from TaskStore events)
+    this.ws.onGlobal((msg) => {
+      if (msg.type === 'task-updated' && msg.task && msg.task.id) {
+        const id = msg.task.id;
+        const old = this._taskById.get(id);
+        this._taskById.set(id, msg.task);
+        if (old) {
+          // Replace in-place to preserve list ordering during incremental edits
+          const idx = this._allTasks.findIndex(t => t.id === id);
+          if (idx >= 0) this._allTasks[idx] = msg.task;
+          else this._allTasks.push(msg.task);
+        } else {
+          this._allTasks.push(msg.task);
+        }
+        this._notifyTasksChanged();
+      } else if (msg.type === 'task-deleted' && msg.taskId) {
+        this._taskById.delete(msg.taskId);
+        this._allTasks = this._allTasks.filter(t => t.id !== msg.taskId);
+        this._notifyTasksChanged();
+      }
+    });
+
+    // Initial fetch (non-blocking; sidebar shows empty state until this resolves)
+    this._loadTasks();
+  }
+
+  async _loadTasks() {
+    try {
+      const data = await fetchJson('/api/tasks');
+      if (!data || !Array.isArray(data.tasks)) return;
+      this._allTasks = data.tasks;
+      this._taskById.clear();
+      for (const t of data.tasks) if (t && t.id) this._taskById.set(t.id, t);
+      this._notifyTasksChanged();
+    } catch (e) {
+      // Server may not have task store (no claude-ops checkout). Silent fail
+      // is OK — sidebar Tasks tab will just show "no tasks".
+    }
+  }
+
+  // Re-render sidebar if Tasks tab is open (cheap no-op for other tabs).
+  _notifyTasksChanged() {
+    if (this.sidebar?._activeTab === 'tasks') this.sidebar._render();
+  }
+
+  // ── Task focus (pinned slots) ──
+  // Backed by SyncStore 'task-focus' for cross-tab persistence.
+  getFocusSlots() {
+    const slots = getStateSync()?.get('task-focus', 'slots');
+    return Array.isArray(slots) ? slots : [];
+  }
+  setFocusSlots(slots) {
+    if (!Array.isArray(slots)) return;
+    getStateSync()?.set('task-focus', 'slots', slots);
+  }
+  pinTaskToFocus(taskId) {
+    const cur = this.getFocusSlots();
+    if (cur.includes(taskId)) return;
+    this.setFocusSlots([...cur, taskId]);
+  }
+  unpinTaskFromFocus(taskId) {
+    const cur = this.getFocusSlots();
+    if (!cur.includes(taskId)) return;
+    this.setFocusSlots(cur.filter(id => id !== taskId));
+  }
+  isTaskInFocus(taskId) {
+    return this.getFocusSlots().includes(taskId);
+  }
+
+  // Subscribe to focus-slot changes (called by sidebar to re-render).
+  onFocusChanged(handler) {
+    const sync = getStateSync();
+    if (sync) sync.on('task-focus', 'slots', handler);
   }
 
   _applyCustomThemesFromServer(themes) {

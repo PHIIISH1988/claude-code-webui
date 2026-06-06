@@ -1,0 +1,354 @@
+{
+  "_format": "claude-code-webui-preset",
+  "_version": 3,
+  "_exportedAt": "2026-03-29T04:30:50.501Z",
+  "settings": {
+    "terminal.minimumContrastRatio": 4.5,
+    "window.enableBounceOnFocus": true,
+    "sidebar.enableAutoGrouping": true,
+    "sidebar.defaultStatusFilter": [
+      "live",
+      "stopped"
+    ],
+    "sidebar.enableStatusQuickTabs": true,
+    "toolbar.showLayoutPresets": false,
+    "layout.enableDragSnap": false,
+    "sessionCard.clickToExpand": true,
+    "sessionCard.clickToCopy": true,
+    "sidebar.showFoldersView": false,
+    "sidebar.groupHeaderButtons": [],
+    "window.activeHighlightIntensity": "strong",
+    "window.linkedFocus": true
+  },
+  "userState": {
+    "starredSessions": [
+      "9f4cd444-abc0-4c9f-8388-ad1f9a70708c",
+      "bde2728d-1da3-4b94-9ece-1f5060ef350b",
+      "5cfe1199-3228-457a-9f47-c47272b731ff"
+    ],
+    "archivedSessions": [
+      "b9898f23-e26d-46f0-8f86-37e31053059e",
+      "29a02ccf-5b5f-464f-b851-e03a66abdc7e",
+      "6183c2d7-6aeb-41fc-8b9f-c087df21a1d0",
+      "ad9fcf24-091a-4c55-83b7-be0de731d11b",
+      "5ee38299-fb93-4fa1-a783-9c03f273de57",
+      "4917c291-938b-4e8b-aecf-53efbb603295",
+      "2e8e81cc-57f2-43aa-9d0e-5b59488fa391",
+      "7fcc7c7e-9ecd-4a6f-846d-2b9df25cc8eb",
+      "4061a670-71a1-4493-a70f-bbba08d7ccda",
+      "cd1cd443-6864-4911-b06a-7654a5e41ae4",
+      "8f9acc04-ba4c-4299-8d25-a1a31cf323cf"
+    ],
+    "customNames": {
+      "9f4cd444-abc0-4c9f-8388-ad1f9a70708c": "Claude Code WebUI 主开发",
+      "bde2728d-1da3-4b94-9ece-1f5060ef350b": "B2B助手",
+      "5cfe1199-3228-457a-9f47-c47272b731ff": "LabelStudio 主开发",
+      "aa029052-c23e-4eb1-b811-9102eb5a3aaf": "米哈游监控",
+      "33bd1533-9b27-424b-8c44-2d0da9a59f6c": "Investor-Comunication",
+      "dc702624-d1e5-4ed5-a49f-689a5fb406d7": "Scratch",
+      "5a7a3aff-62f5-44d3-ae5a-a3093b2353b4": "Accountant-Financials-Support",
+      "48830359-c9ab-446e-a4e5-5b89edca35dd": "idatariver"
+    },
+    "sessionGroups": {
+      "Finance": [],
+      "Legal": [],
+      "Daily-Ops": [],
+      "Claude-ops": [
+        "b670d4fa-9c6f-4fe8-95b4-63ca6ddb414b"
+      ],
+      "HR": [],
+      "Dev": [
+        "cbc06bf9-d9f1-4abd-b861-0c4a70b6e9e8",
+        "cf5ab6f1-f908-47bd-8b3c-ae52c89e920f",
+        "e77edf1e-357d-426f-981f-c4b5808877b1"
+      ]
+    },
+    "groupFolders": {
+      "Finance": [
+        "/Users/walterxu/Documents/claude-ops/workspaces/finance"
+      ],
+      "Daily-Ops": [
+        "/Users/walterxu/Documents/claude-ops/workspaces/daily-ops"
+      ],
+      "HR": [
+        "/Users/walterxu/Documents/claude-ops/workspaces/hr"
+      ],
+      "Legal": [
+        "/Users/walterxu/Documents/claude-ops/workspaces/legal"
+      ]
+    }
+  },
+  "bookmarks": [
+    {
+      "label": "Downloads",
+      "path": "/Users/walterxu/Downloads"
+    },
+    {
+      "label": "Documents",
+      "path": "/Users/walterxu/Documents"
+    },
+    {
+      "label": "workspaces",
+      "path": "/Users/walterxu/Documents/claude-ops/workspaces"
+    }
+  ],
+  "layouts": {
+    "current": null,
+    "autoSave": {
+      "windows": [
+        {
+          "title": "Scratch — /Users/walterxu/Documents/claude-ops/workspaces/daily-ops/ops_scratch-pad_260320",
+          "type": "terminal",
+          "left": "573px",
+          "top": "4px",
+          "width": "565px",
+          "height": "634px",
+          "isMinimized": false,
+          "isMaximized": false,
+          "gridBounds": {
+            "left": 0.2512056115738711,
+            "top": 0.003125,
+            "width": 0.2476983779044279,
+            "height": 0.4953125
+          },
+          "zIndex": 765,
+          "serverSessionId": "sess-11-1774515205417",
+          "claudeSessionId": "dc702624-d1e5-4ed5-a49f-689a5fb406d7",
+          "terminalOverrides": {
+            "theme": null,
+            "fontSize": null,
+            "fontFamily": null
+          }
+        },
+        {
+          "title": "BillCom — /Users/walterxu/Documents/claude-ops/workspaces/finance/finance_bill-reconciliation_260320",
+          "type": "terminal",
+          "left": "1143.71px",
+          "top": "4.53097px",
+          "width": "563.511px",
+          "height": "633.204px",
+          "isMinimized": false,
+          "isMaximized": false,
+          "gridBounds": {
+            "left": 0.5014068655036579,
+            "top": 0.0035398230088495575,
+            "width": 0.2470455824423185,
+            "height": 0.4946902654867257
+          },
+          "zIndex": 462,
+          "serverSessionId": "sess-12-1774515267867",
+          "claudeSessionId": "39343f9b-db91-41a9-a10e-c99fbde0f2f4",
+          "terminalOverrides": {
+            "theme": null,
+            "fontSize": null,
+            "fontFamily": null
+          }
+        },
+        {
+          "title": "vendor-contract-review — /Users/walterxu/Documents/claude-ops/workspaces/legal/legal_vendor-contract-review_260327",
+          "type": "terminal",
+          "left": "1712.35px",
+          "top": "4.53097px",
+          "width": "563.511px",
+          "height": "633.204px",
+          "isMinimized": false,
+          "isMaximized": false,
+          "gridBounds": {
+            "left": 0.7507034327518289,
+            "top": 0.0035398230088495575,
+            "width": 0.2470455824423185,
+            "height": 0.4946902654867257
+          },
+          "zIndex": 463,
+          "serverSessionId": "sess-13-1774599787157",
+          "claudeSessionId": "2597029d-9572-481a-943f-d6530dbd5fc7",
+          "terminalOverrides": {
+            "theme": null,
+            "fontSize": null,
+            "fontFamily": null
+          }
+        },
+        {
+          "title": "请你帮我看看代码，告诉我，如果我要统计每天的总任务数量，我应该查看哪个数据库？—可以分 API 任务和 web 端任务 — /Users/walterxu/Documents/F15h/10_Database_Tools/FishAudio_clone",
+          "type": "terminal",
+          "left": "1143px",
+          "top": "642px",
+          "width": "565px",
+          "height": "634px",
+          "isMinimized": false,
+          "isMaximized": false,
+          "gridBounds": {
+            "left": 0.501096010521701,
+            "top": 0.5015625,
+            "width": 0.2476983779044279,
+            "height": 0.4953125
+          },
+          "zIndex": 555,
+          "serverSessionId": "sess-18-1774648633102",
+          "claudeSessionId": "cf5ab6f1-f908-47bd-8b3c-ae52c89e920f",
+          "terminalOverrides": {
+            "theme": null,
+            "fontSize": null,
+            "fontFamily": null
+          }
+        },
+        {
+          "title": "ClaudeCodeWebUIDev",
+          "type": "terminal",
+          "left": "573px",
+          "top": "642px",
+          "width": "570px",
+          "height": "634px",
+          "isMinimized": false,
+          "isMaximized": false,
+          "gridBounds": {
+            "left": 0.2512056115738711,
+            "top": 0.5015625,
+            "width": 0.2498903989478299,
+            "height": 0.4953125
+          },
+          "zIndex": 818,
+          "serverSessionId": "sess-2-1774725346258",
+          "claudeSessionId": "cbc06bf9-d9f1-4abd-b861-0c4a70b6e9e8",
+          "terminalOverrides": {
+            "theme": null,
+            "fontSize": null,
+            "fontFamily": null
+          }
+        },
+        {
+          "title": "remote-control 正常吗？",
+          "type": "terminal",
+          "left": "1712px",
+          "top": "642px",
+          "width": "565px",
+          "height": "634px",
+          "isMinimized": false,
+          "isMaximized": false,
+          "gridBounds": {
+            "left": 0.7505480052608505,
+            "top": 0.5015625,
+            "width": 0.2476983779044279,
+            "height": 0.4953125
+          },
+          "zIndex": 797,
+          "serverSessionId": "sess-2-1774750636342",
+          "claudeSessionId": "b670d4fa-9c6f-4fe8-95b4-63ca6ddb414b",
+          "terminalOverrides": {
+            "theme": null,
+            "fontSize": null,
+            "fontFamily": null
+          }
+        },
+        {
+          "title": "📁 …Documents/claude-ops/workspaces/finance",
+          "type": "files",
+          "left": "4px",
+          "top": "642px",
+          "width": "569px",
+          "height": "634px",
+          "isMinimized": false,
+          "isMaximized": false,
+          "gridBounds": {
+            "left": 0.0017536168347216134,
+            "top": 0.5015625,
+            "width": 0.2494519947391495,
+            "height": 0.4953125
+          },
+          "zIndex": 802,
+          "explorerPath": "/Users/walterxu/Documents/claude-ops/workspaces/finance"
+        },
+        {
+          "title": "请你仔细熟悉下这里的项目、逻辑、目的",
+          "type": "terminal",
+          "left": "1143px",
+          "top": "4px",
+          "width": "565px",
+          "height": "634px",
+          "isMinimized": false,
+          "isMaximized": false,
+          "gridBounds": {
+            "left": 0.501096010521701,
+            "top": 0.003125,
+            "width": 0.2476983779044279,
+            "height": 0.4953125
+          },
+          "zIndex": 766,
+          "serverSessionId": "sess-4-1774754057470",
+          "claudeSessionId": "04e105c1-79ac-4bcd-a292-076a6010f5ec",
+          "terminalOverrides": {
+            "theme": null,
+            "fontSize": null,
+            "fontFamily": null
+          }
+        },
+        {
+          "title": "Extract accounting data for financial reports",
+          "type": "terminal",
+          "left": "4px",
+          "top": "4px",
+          "width": "565px",
+          "height": "634px",
+          "isMinimized": false,
+          "isMaximized": false,
+          "gridBounds": {
+            "left": 0.0017536168347216134,
+            "top": 0.003125,
+            "width": 0.2476983779044279,
+            "height": 0.4953125
+          },
+          "zIndex": 806,
+          "serverSessionId": "sess-6-1774755776334",
+          "claudeSessionId": "5a7a3aff-62f5-44d3-ae5a-a3093b2353b4",
+          "terminalOverrides": {
+            "theme": null,
+            "fontSize": null,
+            "fontFamily": null
+          }
+        },
+        {
+          "title": "Review handoff document and take over project",
+          "type": "terminal",
+          "left": "573.25px",
+          "top": "4px",
+          "width": "565.25px",
+          "height": "634px",
+          "isMinimized": false,
+          "isMaximized": false,
+          "gridBounds": {
+            "left": 0.2512056115738711,
+            "top": 0.003125,
+            "width": 0.2476983779044279,
+            "height": 0.4953125
+          },
+          "zIndex": 817,
+          "serverSessionId": "sess-1-1774756803745",
+          "claudeSessionId": "48830359-c9ab-446e-a4e5-5b89edca35dd",
+          "terminalOverrides": {
+            "theme": null,
+            "fontSize": null,
+            "fontFamily": null
+          }
+        }
+      ],
+      "grid": {
+        "rows": 2,
+        "cols": 4
+      },
+      "theme": "light",
+      "globalFontSize": 12,
+      "globalFontFamily": "\"Fira Code\",\"Noto Sans Mono CJK SC\",\"Noto Sans Mono CJK TC\",\"Microsoft YaHei Mono\",\"PingFang SC\",\"Hiragino Sans\",monospace",
+      "sidebarOpen": true,
+      "updatedAt": 1774758578095
+    },
+    "saved": {},
+    "customGrids": []
+  },
+  "clientState": {
+    "fileExplorerSettings": "{\"showHidden\":false,\"mixedSort\":true,\"defaultSort\":\"modified\",\"defaultSortAsc\":false}",
+    "termFontSize": "12",
+    "termFontFamily": "\"Fira Code\",\"Noto Sans Mono CJK SC\",\"Noto Sans Mono CJK TC\",\"Microsoft YaHei Mono\",\"PingFang SC\",\"Hiragino Sans\",monospace",
+    "theme": "light",
+    "sidebarWidth": "279"
+  }
+}

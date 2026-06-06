@@ -238,6 +238,7 @@ export async function initStateSync(wsManager) {
   _stateSync = new StateSync(wsManager);
   await _stateSync.init('drafts');
   await _stateSync.init('uploads');
+  await _stateSync.init('task-focus');
   return _stateSync;
 }
 
