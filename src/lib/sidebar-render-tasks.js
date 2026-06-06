@@ -239,7 +239,12 @@ export function installSidebarRenderTasks(SidebarClass) {
       onTogglePin: (id) => {
         if (this.app.isTaskInFocus(id)) this.app.unpinTaskFromFocus(id);
         else this.app.pinTaskToFocus(id);
-        // _render() will be re-triggered by the focus-changed listener
+        // Re-render immediately for the originator. The server SyncStore
+        // broadcast deliberately excludes the sender (to avoid loops), so
+        // the onFocusChanged listener only fires on *other* tabs. Without
+        // this manual render the pinning feedback feels delayed and Walter
+        // has to click somewhere else to see the change.
+        this._render();
       },
       onSelect: (id) => {
         // Phase 2 — just visual selection. Workspace switching is Phase 3.

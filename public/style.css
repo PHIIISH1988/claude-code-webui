@@ -240,10 +240,22 @@ html, body {
 .task-tools-popover-item.active { background: var(--accent); color: #fff; }
 
 .task-focus-area {
-  position: sticky; top: 0; z-index: 2;
-  background: var(--bg);
+  position: sticky; top: 0; z-index: 100;
+  /* Explicit solid background. Using var(--bg) alone is unreliable: in some
+   * themes it's transparent and scrolled task cards bleed through. */
+  background: var(--bg, #ffffff);
+  background-color: var(--bg, #ffffff);
+  /* Shadow doubles as a visual separator + ensures we don't see ghosting
+   * if the bg var is ever slightly off the actual sidebar bg. */
+  box-shadow: 0 2px 0 0 var(--accent), 0 4px 6px -2px rgba(0,0,0,0.15);
   border-bottom: 2px solid var(--accent);
   padding-bottom: 4px;
+  margin-bottom: 4px;
+}
+.task-focus-area::before {
+  /* Backstop layer in case the parent listEl has padding leaks. */
+  content: ''; position: absolute; inset: 0;
+  background: var(--bg, #ffffff); z-index: -1;
 }
 .task-focus-header {
   display: flex; align-items: center; justify-content: space-between;
