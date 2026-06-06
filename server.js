@@ -787,6 +787,32 @@ const { router: sessionsRouter, setup: setupSessions } = require('./src/routes/s
 setupSessions({ activeSessions, webuiPids, refreshWebuiPids, createSessionMessages, BUFFERS_DIR, PERMISSION_MODES, execFileSync });
 app.use(sessionsRouter);
 
+// ── Task API (claude-ops task system integration, Phase 1 of task-centric refactor) ──
+// TaskStore is initialized after the server starts listening (see startup
+// block at the bottom of this file); routes here just bind to the singleton.
+const { TaskStore } = require('./src/task-store');
+const { router: tasksRouter, setup: setupTasks } = require('./src/routes/tasks');
+let _taskStore = null; // populated after server.listen
+app.use(tasksRouter);
+
+function broadcastTaskUpdated(task) {
+  const payload = JSON.stringify({ type: 'task-updated', task: sanitizeTask(task) });
+  wss.clients.forEach(c => { if (c.readyState === WS_OPEN) { try { c.send(payload); } catch {} } });
+}
+function broadcastTaskDeleted(taskId) {
+  const payload = JSON.stringify({ type: 'task-deleted', taskId });
+  wss.clients.forEach(c => { if (c.readyState === WS_OPEN) { try { c.send(payload); } catch {} } });
+}
+function sanitizeTask(task) {
+  if (!task) return null;
+  const out = {};
+  for (const [k, v] of Object.entries(task)) {
+    if (k === '_body') continue;
+    out[k] = v;
+  }
+  return out;
+}
+
 // ── Usage / Rate Limit ──
 // Minimal haiku API call to read rate limit headers. Cached, refreshed every 5 min.
 // Uses OAuth token from ~/.claude/.credentials.json (x-api-key header).
@@ -1121,7 +1147,7 @@ server.on('upgrade', (req, socket, head) => {
   if (req.url.startsWith('/proxy/')) unblocker.onUpgrade(req, socket, head);
 });
 
-server.listen(PORT, HOST, () => {
+server.listen(PORT, HOST, async () => {
   const ver = require('./package.json').version;
   console.log(`\n  Claude Code WebUI v${ver} running at http://localhost:${PORT}`);
   console.log(`  dtach: ${DTACH_CMD}, node: ${NODE_CMD}, env: ${ENV_CMD}, claude: ${CLAUDE_CMD}, codex: ${CODEX_CMD}`);
@@ -1129,17 +1155,34 @@ server.listen(PORT, HOST, () => {
   // Restore existing dtach sessions from before restart
   restoreSessions();
 
+  // Initialize TaskStore (claude-ops task system integration).
+  // Async + non-blocking: if workspacesDir is missing, init returns quickly
+  // and the webUI still works for everything except task features.
+  _taskStore = new TaskStore();
+  _taskStore.on('task-updated', ({ task }) => broadcastTaskUpdated(task));
+  _taskStore.on('task-deleted', ({ taskId }) => broadcastTaskDeleted(taskId));
+  setupTasks({ taskStore: _taskStore });
+  try {
+    await _taskStore.init();
+    const count = _taskStore.list().length;
+    if (count > 0) console.log(`  task store: ${count} tasks discovered`);
+  } catch (e) {
+    console.error(`  task store init failed: ${e.message}`);
+  }
+
   console.log(`  Ready.\n`);
 });
 
 // On server shutdown: only kill the attach PTYs, NOT the dtach sessions
 // Claude processes in dtach survive the server restart
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log('\n  Shutting down (dtach sessions will keep running)...');
   for (const [, s] of activeSessions) { try { if (s.pty) s.pty.kill(); } catch {} }
+  if (_taskStore) { try { await _taskStore.stop(); } catch {} }
   process.exit(0);
 });
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   for (const [, s] of activeSessions) { try { if (s.pty) s.pty.kill(); } catch {} }
+  if (_taskStore) { try { await _taskStore.stop(); } catch {} }
   process.exit(0);
 });
