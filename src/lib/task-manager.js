@@ -85,6 +85,24 @@ export class TaskManager {
     this._members = new Map();
     /** winId of the Files window pinned to bottom-left of task workspace. */
     this._filesWinId = null;
+    /**
+     * Defense-in-depth dedup for spawn calls. When we call
+     * app.resumeSession(K) / app.attachSession(K) we add K here and clean
+     * up either when the resulting window resolves to K (in _borrowTaskWindows)
+     * or after a hard timeout (15 s). The race we're guarding against:
+     *
+     *   1. setActiveTask → spawn → resumeSession(K) is async
+     *   2. webUI creates the chat window long before its
+     *      openSpec.backendSessionId is filled in (or sessionId is wired)
+     *   3. wm.onWindowsChanged fires → if we re-run spawn, the new window
+     *      can't be matched to K yet, so spawn fires another resumeSession
+     *   4. The loop produces N duplicate windows for the same session
+     *
+     * That bug is the immediate reason Walter saw 9 identical clones of
+     * one Supermicro chat after clicking the task. The refresh/spawn
+     * split below is the primary fix; _spawningKeys is the belt-and-
+     * braces backup. */
+    this._spawningKeys = new Map(); // key → setTimeout handle
     this._topBar = null;
     this._listeners = new Set();
     this._hookDesktopSwitch();
@@ -148,26 +166,41 @@ export class TaskManager {
   clearActiveTask() { return this.setActiveTask(null); }
 
   /**
-   * Re-evaluate everything for the active task: reconcile membership, borrow
-   * any new windows, respawn missing sessions, re-layout.
+   * LIGHT refresh — reconcile + borrow + layout. NO spawn.
    *
-   * This is the same code path setActiveTask runs on a fresh activation,
-   * minus the desktop switch. Called from:
-   *   - sidebar onSelect when the user re-clicks the already-active task
-   *     (Walter's "I cleared all sessions, want them back" case)
-   *   - wm.onWindowsChanged hook in app._setupTaskManager whenever a window
-   *     appears/disappears (auto-resumed sessions arriving async, manual
-   *     close inside the workspace — both should re-layout to the new
-   *     session count, e.g. 2x3 → 2x2 when going from 4 sessions to 1)
+   * Called from wm.onWindowsChanged whenever a window appears/disappears.
+   * This MUST NOT call _spawnMissingTaskSessions: doing so caused a runaway
+   * loop where every fresh resumeSession-created window triggered another
+   * onWindowsChanged → refresh → spawn cycle before the window's session
+   * key was wired up. Walter ended up with 9 duplicate clones of one chat.
+   *
+   * Spawn-missing only runs from explicit user actions (setActiveTask on
+   * first entry, manualRefresh on same-task re-click), which fire once and
+   * don't recurse.
    */
   refresh() {
     if (this._activeTaskId) {
       this._reconcileMembersAgainstActiveTask();
       this._borrowTaskWindows();
-      this._spawnMissingTaskSessions();
       this._ensureTaskFiles();
       this._scheduleAutoLayout();
     }
+    this._renderTopBar();
+  }
+
+  /**
+   * USER-TRIGGERED refresh — full reconcile + borrow + spawn-missing + layout.
+   * Bound to the sidebar "click already-active task" gesture so Walter can
+   * say "bring back the sessions I just closed". Idempotent + dedup'd via
+   * _spawningKeys, so rapid re-clicks don't multiply windows.
+   */
+  manualRefresh() {
+    if (!this._activeTaskId) return;
+    this._reconcileMembersAgainstActiveTask();
+    this._borrowTaskWindows();
+    this._spawnMissingTaskSessions();
+    this._ensureTaskFiles();
+    this._scheduleAutoLayout();
     this._renderTopBar();
   }
 
@@ -273,8 +306,21 @@ export class TaskManager {
         win._desktopId = TASK_DESKTOP_ID;
       }
       this._show(win);
+      // Window landed → release the spawn marker so a future explicit
+      // refresh can spawn again if this window dies.
+      this._clearSpawnMarker(key);
     }
     wm._reflowWindows?.();
+  }
+
+  _markSpawning(key) {
+    if (this._spawningKeys.has(key)) return;
+    const t = setTimeout(() => this._spawningKeys.delete(key), 15000);
+    this._spawningKeys.set(key, t);
+  }
+  _clearSpawnMarker(key) {
+    const t = this._spawningKeys.get(key);
+    if (t) { clearTimeout(t); this._spawningKeys.delete(key); }
   }
 
   _reconcileMembersAgainstActiveTask() {
@@ -345,6 +391,13 @@ export class TaskManager {
 
     for (const key of allowed) {
       if (haveWindow.has(key)) continue;
+      // Defense-in-depth: if we've already kicked off a spawn for this key
+      // and the window just hasn't materialised yet, do NOT fire another.
+      // This is the actual fix for the 9-duplicate-clones bug Walter saw.
+      // Primary fix is the refresh/manualRefresh split that keeps spawn off
+      // the onWindowsChanged path, but this guard handles any other path
+      // that might re-enter here while a resume is in flight.
+      if (this._spawningKeys.has(key)) continue;
       let revived = false;
       for (const [winId, meta] of this._members) {
         const win = wm.windows.get(winId);
@@ -377,6 +430,7 @@ export class TaskManager {
         sourceKind: sess.sourceKind || '',
         parentThreadId: sess.parentThreadId || null,
       };
+      this._markSpawning(key);
       try {
         if (sess.status === 'live' && sess.webuiId) {
           this.app.attachSession(sess.webuiId, sess.webuiName || sess.name, sess.cwd,
@@ -384,8 +438,14 @@ export class TaskManager {
         } else if (sess.status === 'stopped') {
           this.app.resumeSession(sess.sessionId, sess.cwd, sess.name,
             { mode: 'chat', ...agentOpts });
+        } else {
+          // Status we don't auto-handle (tmux/external) — release the
+          // marker so we don't block future explicit retries.
+          this._clearSpawnMarker(key);
         }
-      } catch {}
+      } catch {
+        this._clearSpawnMarker(key);
+      }
     }
   }
 

@@ -250,15 +250,14 @@ export function installSidebarRenderTasks(SidebarClass) {
         this._render();
       },
       onSelect: (id) => {
-        // Clicking the same task is no longer a leave — it's a REFRESH.
-        // Walter's case: he closed every session window inside the active
-        // task workspace and then re-clicked the same task expecting them
-        // to come back. refresh() re-runs spawn-missing, so any session
-        // in the task's set that doesn't currently have a window gets
-        // resumed/attached again.
+        // Clicking the same task = manualRefresh — re-runs spawn-missing
+        // so any closed session in the task's set is resumed/attached
+        // again. NOT the light refresh() (which deliberately omits spawn
+        // to avoid the onWindowsChanged race that produced 9 duplicate
+        // clones of one chat).
         const cur = this.app.taskManager?.getActiveTaskId() || null;
         if (cur === id) {
-          this.app.taskManager?.refresh();
+          this.app.taskManager?.manualRefresh();
           return;
         }
         this.app.taskManager?.setActiveTask(id);
