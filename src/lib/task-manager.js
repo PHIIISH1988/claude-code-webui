@@ -1,68 +1,85 @@
 /**
- * TaskManager — drives the "Task Desktop" workspace (Phase 3 v2).
+ * TaskManager — drives the dedicated Task Desktop workspace (Phase 3.5).
  *
- * Design (revised per Walter's feedback 2026-06-06):
+ * Design history:
  *
- *   - There is exactly ONE system Task Desktop, registered in DesktopManager
- *     under the id DesktopManager.TASK_DESKTOP_ID. It's not deletable and
- *     it lives at the rightmost slot of the desktop tab strip. Walter
- *     switches *to* this desktop by clicking any task in the sidebar.
+ *   v1 — "filter the current desktop". Walter rejected: it polluted his
+ *        Finance/Dev desktops.
+ *   v2 — "borrow into a system Task Desktop". Got 80% there but had three
+ *        sharp bugs Walter spotted:
+ *          (a) no auto-layout — windows piled on top of each other
+ *          (b) A→B switch leaked: task A's auto-spawned windows stayed
+ *              visible when entering task B
+ *          (c) context_folder inference returned ALL sessions in that
+ *              folder, so forky tasks (9 sessions for one task) flooded
+ *              the workspace
+ *   v3 (this) — fixes all three plus lays groundwork for explicit session
+ *               locking via task.extras.
  *
- *   - The Task Desktop's content is dynamic — driven by which task is
- *     currently active. Clicking a different task in the sidebar swaps the
- *     contents in-place without leaving the Task Desktop.
+ * Key invariants:
  *
- *   - User's other desktops (Finance / Legal / Dev / etc) are NEVER touched
- *     by task activation. They continue to look and behave exactly as they
- *     did before this refactor.
+ *   - Each window that lands in Task Desktop has an entry in _members:
+ *       { borrowed: bool, origDesktopId: string|null, taskId: string }
+ *     borrowed=true → came from another desktop (origDesktopId set), goes
+ *     back there on leave. borrowed=false → auto-spawned for the task,
+ *     limbos on Task Desktop when not in the active task's set.
  *
- *   - Sessions are "borrowed" into the Task Desktop while a task is active:
- *     we save the window's original `_desktopId` in `_origDesktopId`, then
- *     overwrite `_desktopId` with TASK_DESKTOP_ID. When the user leaves
- *     (clicks another desktop tab, or clicks the active task again to
- *     toggle off), we restore the original `_desktopId`. Standard
- *     DesktopManager visibility logic does the rest — no parallel hide
- *     mechanism, no flag composition.
+ *   - Visibility uses TWO independent flags:
+ *       _hiddenByDesktop — DesktopManager owns this. Set when window's
+ *                          _desktopId !== activeDesktop.
+ *       _hiddenByTask    — TaskManager owns this. Set when window is on
+ *                          Task Desktop but not in the active task's set
+ *                          (e.g. a limbo'd auto-spawn from a previous
+ *                          task). Composes with _hiddenByDesktop.
+ *     DesktopManager._showWin was patched to respect _hiddenByTask so it
+ *     doesn't accidentally reveal limbo windows on re-entry.
  *
- *   - Stopped sessions in the active task's set are auto-resumed when
- *     entering the workspace, per Walter's spec. Live sessions without
- *     windows are auto-attached. The new windows spawn directly onto the
- *     Task Desktop because we switched to it first.
+ *   - Inference is now CAPPED at one session per task by default.
+ *     The "best" pick is the most-recently-started session (proxy for
+ *     "the fork tip Walter is actually using"), preferring live > stopped.
+ *     If Walter needs more sessions associated with a task, he locks
+ *     them explicitly into task.extras via the right-click "Lock to
+ *     current task" UI (Phase 3.5b).
  *
- *   - The Active task is NOT persisted across reloads. Boots into Default.
+ *   - Layout: after a task is activated we auto-arrange visible windows
+ *     into a sensible grid (N=1 maximize, N=2 two-cols, N=4 quad, etc).
+ *     Round-robin via wm.applyLayout. This is one-shot; Walter can drag
+ *     things around afterwards without us re-fighting him.
  */
 
 import { DesktopManager } from './desktop-manager.js';
 
 const TASK_DESKTOP_ID = DesktopManager.TASK_DESKTOP_ID;
 
+function gridForCount(n) {
+  if (n <= 1) return 'maximize';
+  if (n === 2) return 'two-vertical';
+  if (n === 3) return 'three-columns';
+  if (n === 4) return 'quad';
+  if (n <= 6) return 'grid-2-3';
+  if (n <= 9) return 'grid-3-3';
+  if (n <= 12) return 'grid-3-4';
+  if (n <= 16) return 'grid-4-4';
+  return 'grid-4-' + Math.ceil(n / 4);
+}
+
 export class TaskManager {
   constructor(app) {
     this.app = app;
-    /** @type {string | null}  null = no task active */
     this._activeTaskId = null;
-    /** Set of winIds we borrowed from other desktops while a task is active. */
-    this._borrowedWinIds = new Set();
-    /** Top breadcrumb element (lazily injected). */
+    this._members = new Map();
     this._topBar = null;
-    /** External listeners for activetask changes. */
     this._listeners = new Set();
-
     this._hookDesktopSwitch();
   }
-
-  // ── Public API ────────────────────────────────────────────────
 
   getActiveTaskId() { return this._activeTaskId; }
   getActiveTask() {
     if (!this._activeTaskId) return null;
     return this.app._taskById?.get(this._activeTaskId) || null;
   }
+  onActiveTaskChanged(fn) { this._listeners.add(fn); return () => this._listeners.delete(fn); }
 
-  /**
-   * Switch to the given task's workspace. Pass null/undefined to leave.
-   * Idempotent if the clicked task is already active.
-   */
   async setActiveTask(taskId) {
     const next = taskId || null;
     if (this._activeTaskId === next) return;
@@ -70,17 +87,11 @@ export class TaskManager {
     const dm = this.app.desktopManager;
     if (!dm) return;
 
-    // 1. If we were viewing another task already, return its borrowed windows
-    //    to where they came from first. This avoids cross-task contamination.
-    if (this._activeTaskId) this._restoreBorrowedWindows();
-
-    this._activeTaskId = next;
-
     if (!next) {
-      // Leaving the Task Desktop — pick any non-task desktop to land on.
+      this._teardownAllMembers();
+      this._activeTaskId = null;
       const fallback = dm.desktops.find(d => d.id !== TASK_DESKTOP_ID);
       if (fallback) {
-        // Use the internal-switch flag so our hook doesn't fire recursively.
         this._inProgrammaticSwitch = true;
         try { await dm.switchTo(fallback.id); } finally { this._inProgrammaticSwitch = false; }
       }
@@ -89,39 +100,31 @@ export class TaskManager {
       return;
     }
 
-    // 2. Switch DesktopManager onto the Task Desktop. Standard hide-all-on-
-    //    prev + show-on-target runs — and since no windows have
-    //    _desktopId=TASK_DESKTOP_ID yet, the screen ends up empty. We fill
-    //    it next via borrowing.
-    if (dm.activeDesktopId !== TASK_DESKTOP_ID) {
+    const wasOnTaskDesktop = dm.activeDesktopId === TASK_DESKTOP_ID;
+    this._activeTaskId = next;
+
+    if (!wasOnTaskDesktop) {
       this._inProgrammaticSwitch = true;
       try { await dm.switchTo(TASK_DESKTOP_ID); } finally { this._inProgrammaticSwitch = false; }
     }
 
-    // 3. Borrow windows that already exist for this task's sessions.
+    this._reconcileMembersAgainstActiveTask();
     this._borrowTaskWindows();
-
-    // 4. Auto-resume / attach the rest (sessions in the set that don't have
-    //    a window yet). Stopped → resumeSession; live → attachSession.
     this._spawnMissingTaskSessions();
-
+    this._scheduleAutoLayout();
     this._renderTopBar();
     this._notify();
   }
 
   clearActiveTask() { return this.setActiveTask(null); }
 
-  /** Sidebar / other consumers can re-evaluate after task data changes. */
   refresh() {
     if (this._activeTaskId) {
-      // Task data may have added/removed sessions — re-borrow.
-      this._restoreBorrowedWindows();
+      this._reconcileMembersAgainstActiveTask();
       this._borrowTaskWindows();
     }
     this._renderTopBar();
   }
-
-  onActiveTaskChanged(fn) { this._listeners.add(fn); return () => this._listeners.delete(fn); }
 
   // ── Session association ──────────────────────────────────────
 
@@ -133,78 +136,47 @@ export class TaskManager {
     if (declared.length > 0) {
       for (const k of declared) set.add(k);
     } else {
-      for (const k of this._inferSessionKeysByContextFolder(task.context_folder)) set.add(k);
+      const best = this._inferBestSessionByContextFolder(task.context_folder);
+      if (best) set.add(best);
     }
     for (const k of extras) set.add(k);
     return set;
   }
 
-  _inferSessionKeysByContextFolder(contextFolder) {
-    if (!contextFolder) return [];
+  _inferBestSessionByContextFolder(contextFolder) {
+    if (!contextFolder) return null;
     const sessions = this.app.sidebar?._allSessions || [];
-    const hits = [];
+    const matches = [];
     for (const s of sessions) {
       if (!s.cwd) continue;
       const cwdLast = s.cwd.replace(/\/+$/, '').split('/').pop();
-      if (cwdLast === contextFolder) {
-        const backend = s.backend || 'claude';
-        const id = s.backendSessionId || s.sessionId;
-        if (id) hits.push(`${backend}:${id}`);
-      }
+      if (cwdLast !== contextFolder) continue;
+      const id = s.backendSessionId || s.sessionId;
+      if (!id) continue;
+      matches.push(s);
     }
-    return hits;
+    if (matches.length === 0) return null;
+
+    const statusRank = (s) => {
+      if (s.status === 'live') return 0;
+      if (s.status === 'stopped') return 1;
+      return 2;
+    };
+    matches.sort((a, b) => {
+      const r = statusRank(a) - statusRank(b);
+      if (r !== 0) return r;
+      const ta = a.startedAt || '';
+      const tb = b.startedAt || '';
+      if (ta !== tb) return tb.localeCompare(ta);
+      return 0;
+    });
+    const winner = matches[0];
+    const backend = winner.backend || 'claude';
+    const id = winner.backendSessionId || winner.sessionId;
+    return `${backend}:${id}`;
   }
 
-  // ── Borrow / restore (the heart of "Task Desktop owns task windows") ──
-
-  _borrowTaskWindows() {
-    const task = this.getActiveTask();
-    if (!task) return;
-    const allowed = this.getTaskSessionKeys(task);
-    const wm = this.app.wm;
-    const dm = this.app.desktopManager;
-    if (!wm || !dm) return;
-
-    for (const [winId, win] of wm.windows) {
-      if (win.type !== 'chat' && win.type !== 'terminal') continue;
-      const key = this._sessionKeyForWindow(winId, win);
-      if (!key || !allowed.has(key)) continue;
-      if (win._desktopId === TASK_DESKTOP_ID) continue; // already here
-      win._origDesktopId = win._desktopId;
-      win._desktopId = TASK_DESKTOP_ID;
-      this._borrowedWinIds.add(winId);
-      // Force-show: this window was hidden by the desktop switch a moment ago.
-      if (win._hiddenByDesktop) {
-        win._hiddenByDesktop = false;
-        win.element.style.visibility = '';
-        win.element.style.pointerEvents = '';
-      }
-    }
-    wm._reflowWindows?.();
-  }
-
-  _restoreBorrowedWindows() {
-    const wm = this.app.wm;
-    if (!wm) return;
-    for (const winId of this._borrowedWinIds) {
-      const win = wm.windows.get(winId);
-      if (!win) continue;
-      if (typeof win._origDesktopId !== 'undefined') {
-        win._desktopId = win._origDesktopId;
-        delete win._origDesktopId;
-      }
-      // If we're leaving Task Desktop entirely, this window's true desktop
-      // is not the current active one → hide it via the standard flag so
-      // the next switchTo will reveal it correctly.
-      const dm = this.app.desktopManager;
-      if (dm && dm.activeDesktopId !== win._desktopId) {
-        win._hiddenByDesktop = true;
-        win.element.style.visibility = 'hidden';
-        win.element.style.pointerEvents = 'none';
-      }
-    }
-    this._borrowedWinIds.clear();
-  }
+  // ── Member tracking ──────────────────────────────────────────
 
   _sessionKeyForWindow(winId, win) {
     const term = this.app.sessions?.get(winId);
@@ -217,7 +189,6 @@ export class TaskManager {
         if (id) return `${backend}:${id}`;
       }
     }
-    // Fall back to openSpec
     const spec = win._openSpec || {};
     const backendSessionId = spec.backendSessionId || spec.sessionId;
     const backend = spec.backend || 'claude';
@@ -225,7 +196,84 @@ export class TaskManager {
     return null;
   }
 
-  // ── Auto-resume / attach missing sessions ────────────────────
+  _borrowTaskWindows() {
+    const task = this.getActiveTask();
+    if (!task) return;
+    const allowed = this.getTaskSessionKeys(task);
+    const wm = this.app.wm;
+    if (!wm) return;
+
+    for (const [winId, win] of wm.windows) {
+      if (win.type !== 'chat' && win.type !== 'terminal') continue;
+      if (this._members.has(winId)) continue;
+      const key = this._sessionKeyForWindow(winId, win);
+      if (!key || !allowed.has(key)) continue;
+      if (win._desktopId === TASK_DESKTOP_ID) {
+        this._members.set(winId, {
+          borrowed: false,
+          origDesktopId: null,
+          taskId: this._activeTaskId,
+        });
+      } else {
+        this._members.set(winId, {
+          borrowed: true,
+          origDesktopId: win._desktopId,
+          taskId: this._activeTaskId,
+        });
+        win._desktopId = TASK_DESKTOP_ID;
+      }
+      this._show(win);
+    }
+    wm._reflowWindows?.();
+  }
+
+  _reconcileMembersAgainstActiveTask() {
+    const task = this.getActiveTask();
+    if (!task) return;
+    const allowed = this.getTaskSessionKeys(task);
+    const wm = this.app.wm;
+    if (!wm) return;
+    const dm = this.app.desktopManager;
+
+    for (const [winId, meta] of [...this._members]) {
+      const win = wm.windows.get(winId);
+      if (!win) { this._members.delete(winId); continue; }
+      const key = this._sessionKeyForWindow(winId, win);
+      const isMatch = key && allowed.has(key);
+
+      if (isMatch) {
+        meta.taskId = this._activeTaskId;
+        this._show(win);
+      } else {
+        if (meta.borrowed) {
+          win._desktopId = meta.origDesktopId || (dm?.desktops[0]?.id);
+          this._hideByDesktop(win);
+          this._members.delete(winId);
+        } else {
+          this._hideByTask(win);
+        }
+      }
+    }
+  }
+
+  _teardownAllMembers() {
+    const wm = this.app.wm;
+    const dm = this.app.desktopManager;
+    if (!wm || !dm) return;
+    for (const [winId, meta] of this._members) {
+      const win = wm.windows.get(winId);
+      if (!win) continue;
+      if (meta.borrowed) {
+        win._desktopId = meta.origDesktopId || dm.desktops[0]?.id;
+        this._hideByDesktop(win);
+      } else {
+        this._hideByDesktop(win);
+        if (win._hiddenByTask) win._hiddenByTask = false;
+      }
+    }
+  }
+
+  // ── Auto-resume / attach ─────────────────────────────────────
 
   _spawnMissingTaskSessions() {
     const task = this.getActiveTask();
@@ -237,16 +285,30 @@ export class TaskManager {
     const wm = this.app.wm;
     if (!wm) return;
 
-    // Build a set of sessionKeys that already have a window on Task Desktop.
     const haveWindow = new Set();
     for (const [winId, win] of wm.windows) {
       if (win._desktopId !== TASK_DESKTOP_ID) continue;
+      if (win._hiddenByTask) continue;
       const k = this._sessionKeyForWindow(winId, win);
       if (k) haveWindow.add(k);
     }
 
     for (const key of allowed) {
       if (haveWindow.has(key)) continue;
+      let revived = false;
+      for (const [winId, meta] of this._members) {
+        const win = wm.windows.get(winId);
+        if (!win || !win._hiddenByTask) continue;
+        const k = this._sessionKeyForWindow(winId, win);
+        if (k === key) {
+          this._show(win);
+          meta.taskId = this._activeTaskId;
+          revived = true;
+          break;
+        }
+      }
+      if (revived) continue;
+
       const colon = key.indexOf(':');
       if (colon < 0) continue;
       const backend = key.slice(0, colon);
@@ -254,7 +316,7 @@ export class TaskManager {
       const sess = allSess.find(s =>
         (s.backendSessionId || s.sessionId) === backendSessionId &&
         (s.backend || 'claude') === backend);
-      if (!sess) continue; // session not in sidebar (deleted file?) — skip
+      if (!sess) continue;
 
       const agentOpts = {
         backend,
@@ -265,8 +327,6 @@ export class TaskManager {
         sourceKind: sess.sourceKind || '',
         parentThreadId: sess.parentThreadId || null,
       };
-      // Best effort — failures are silent so a single bad session doesn't
-      // block the rest of the workspace from loading.
       try {
         if (sess.status === 'live' && sess.webuiId) {
           this.app.attachSession(sess.webuiId, sess.webuiName || sess.name, sess.cwd,
@@ -275,26 +335,61 @@ export class TaskManager {
           this.app.resumeSession(sess.sessionId, sess.cwd, sess.name,
             { mode: 'chat', ...agentOpts });
         }
-        // tmux / external sessions: skip — user has to attach those manually.
       } catch {}
     }
   }
 
-  // ── Hook DesktopManager.switchTo to detect "leaving task desktop" ──
+  // ── Layout ───────────────────────────────────────────────────
+
+  _scheduleAutoLayout() {
+    requestAnimationFrame(() => this._applyAutoLayout());
+    setTimeout(() => this._applyAutoLayout(), 1500);
+  }
+
+  _applyAutoLayout() {
+    const wm = this.app.wm;
+    const dm = this.app.desktopManager;
+    if (!wm || !dm) return;
+    if (dm.activeDesktopId !== TASK_DESKTOP_ID) return;
+    const visible = [...wm.windows.values()].filter(w =>
+      !w.isMinimized && !w._hiddenByDesktop && !w._hiddenByTask
+      && w._desktopId === TASK_DESKTOP_ID
+      && !(w._tabChain && w._tabChain.tabs[0] !== w.id));
+    if (visible.length === 0) return;
+    wm.applyLayout(gridForCount(visible.length));
+  }
+
+  // ── Visibility helpers ───────────────────────────────────────
+
+  _show(win) {
+    if (win._hiddenByTask) win._hiddenByTask = false;
+    if (win._hiddenByDesktop) win._hiddenByDesktop = false;
+    win.element.style.visibility = '';
+    win.element.style.pointerEvents = '';
+  }
+  _hideByDesktop(win) {
+    win._hiddenByDesktop = true;
+    win.element.style.visibility = 'hidden';
+    win.element.style.pointerEvents = 'none';
+  }
+  _hideByTask(win) {
+    win._hiddenByTask = true;
+    win.element.style.visibility = 'hidden';
+    win.element.style.pointerEvents = 'none';
+  }
+
+  // ── Desktop switch hook ──────────────────────────────────────
 
   _hookDesktopSwitch() {
     const dm = this.app.desktopManager;
     if (!dm) return;
     const orig = dm.switchTo.bind(dm);
     dm.switchTo = async (desktopId) => {
-      // If switch is being driven by our own code, don't react to it.
       if (this._inProgrammaticSwitch) return orig(desktopId);
-      // User clicked another desktop tab while a task was active → leave.
       if (this._activeTaskId && desktopId !== TASK_DESKTOP_ID) {
-        this._restoreBorrowedWindows();
+        this._teardownAllMembers();
         this._activeTaskId = null;
         this._renderTopBar();
-        // Sidebar re-render to clear the "active task" highlight.
         if (this.app.sidebar?._activeTab === 'tasks') this.app.sidebar._render();
         this._notify();
       }
@@ -320,12 +415,8 @@ export class TaskManager {
       bar.querySelector('.task-active-back').onclick = () => this.clearActiveTask();
       this._topBar = bar;
     }
-
     const task = this.getActiveTask();
-    if (!task) {
-      this._topBar.classList.remove('active');
-      return;
-    }
+    if (!task) { this._topBar.classList.remove('active'); return; }
     this._topBar.classList.add('active');
     this._topBar.querySelector('.task-active-name').textContent = task.title || task.id;
     this._topBar.querySelector('.task-active-name').title =

@@ -544,6 +544,9 @@ export class DesktopManager {
   /** Show a previously hidden window */
   _showWin(win) {
     win._hiddenByDesktop = false;
+    // Respect TaskManager's _hiddenByTask flag: limbo'd task-window members
+    // should stay invisible across desktop switches.
+    if (win._hiddenByTask) return;
     win.element.style.visibility = '';
     win.element.style.pointerEvents = '';
   }
