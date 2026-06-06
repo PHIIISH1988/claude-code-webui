@@ -1,4 +1,4 @@
-import { escHtml, copyText, createPopover } from './utils.js';
+import { escHtml, copyText, createPopover, showContextMenu } from './utils.js';
 import { createBackendIcon, createAgentKindIcon, createModeBackendIcon, getBackendMeta, getAgentKindMeta, getAgentRoleLabel, getAgentRoleShortLabel, getSessionKey } from './agent-meta.js';
 
 /** Inline SVG icon helper — returns an HTML string for a 12x12 stroked icon */
@@ -84,6 +84,28 @@ export function renderSessionCard(s, { state, app, settings, expandedCardId, onE
     const sessionKey = getSessionKey(s);
     if (sessionKey) e.dataTransfer.setData('application/x-session-key', sessionKey);
     e.dataTransfer.effectAllowed = 'link';
+  });
+
+  // Right-click → lock/unlock to current task workspace. Walter uses this
+  // when inference picks the wrong session from a multi-fork folder, or
+  // when he wants to associate sessions from a DIFFERENT folder with a
+  // task. Hidden when no task is active (default desktop view).
+  card.addEventListener('contextmenu', (e) => {
+    const tm = app?.taskManager;
+    if (!tm || !tm.getActiveTaskId()) return; // let browser show native menu
+    const sessionKey = getSessionKey(s);
+    if (!sessionKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const task = tm.getActiveTask();
+    const locked = tm.isSessionLockedToActiveTask(sessionKey);
+    const taskLabel = (task?.title || task?.id || 'current task');
+    const items = locked
+      ? [{ label: '🔓  Unlock from "' + taskLabel + '"',
+           action: () => tm.unlockSessionFromActiveTask(sessionKey) }]
+      : [{ label: '🔒  Lock to "' + taskLabel + '"',
+           action: () => tm.lockSessionToActiveTask(sessionKey) }];
+    showContextMenu(e.clientX, e.clientY, items);
   });
   const isArchived = state.isArchived(s);
   if (isArchived) card.classList.add('archived');

@@ -260,19 +260,89 @@ export class TaskManager {
 
   // ── Session association ──────────────────────────────────────
 
+  /**
+   * Resolve a task to its allowed sessionKey set.
+   *
+   * Priority:
+   *   1. Either task.sessions[] (agent-declared) OR task.extras[] (webUI-
+   *      locked) present → use only those; inference SKIPPED. This is
+   *      Walter's "lock" semantic: the moment he locks one session via
+   *      right-click, inference stops second-guessing.
+   *   2. Both empty → fall back to context_folder inference, capped at
+   *      the single most-recently-started match.
+   *
+   * The first rule is critical: if extras only ADDED to inference, Walter
+   * locking the 'correct' session would still leave the inferred 'wrong'
+   * one visible alongside. The override matches his mental model — once
+   * he's said "these are the sessions for this task", that's the truth.
+   */
   getTaskSessionKeys(task) {
     if (!task) return new Set();
     const set = new Set();
     const declared = Array.isArray(task.sessions) ? task.sessions.filter(Boolean) : [];
     const extras = Array.isArray(task.extras) ? task.extras.filter(Boolean) : [];
-    if (declared.length > 0) {
+    if (declared.length > 0 || extras.length > 0) {
       for (const k of declared) set.add(k);
+      for (const k of extras) set.add(k);
     } else {
       const best = this._inferBestSessionByContextFolder(task.context_folder);
       if (best) set.add(best);
     }
-    for (const k of extras) set.add(k);
     return set;
+  }
+
+  // ── Lock / unlock sessions to active task (Phase 3.5b) ──────
+
+  /** Is the given sessionKey explicitly bound to the active task via
+   *  task.sessions or task.extras? Used by the right-click menu to
+   *  show "Lock" vs "Unlock" labels and by callers wanting to decide
+   *  whether to ADD or REMOVE. */
+  isSessionLockedToActiveTask(sessionKey) {
+    const task = this.getActiveTask();
+    if (!task || !sessionKey) return false;
+    const declared = Array.isArray(task.sessions) ? task.sessions : [];
+    const extras = Array.isArray(task.extras) ? task.extras : [];
+    return declared.includes(sessionKey) || extras.includes(sessionKey);
+  }
+
+  async lockSessionToActiveTask(sessionKey) {
+    const task = this.getActiveTask();
+    if (!task || !sessionKey) return;
+    try {
+      const res = await fetch(`/api/tasks/${encodeURIComponent(task.id)}/extras`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionKey }),
+      });
+      if (!res.ok) throw new Error('lock failed: ' + res.status);
+      // Optimistically update local cache so the next refresh sees the new
+      // extras without waiting for the server's task-updated WS broadcast.
+      task.extras = Array.isArray(task.extras) ? [...task.extras] : [];
+      if (!task.extras.includes(sessionKey)) task.extras.push(sessionKey);
+      // Re-evaluate the workspace: spawn the new session if not already
+      // present, drop inferred ones that aren't in the lock list.
+      this.manualRefresh();
+    } catch (e) {
+      console.warn('[TaskManager] lockSessionToActiveTask failed:', e);
+    }
+  }
+
+  async unlockSessionFromActiveTask(sessionKey) {
+    const task = this.getActiveTask();
+    if (!task || !sessionKey) return;
+    try {
+      const res = await fetch(
+        `/api/tasks/${encodeURIComponent(task.id)}/extras/${encodeURIComponent(sessionKey)}`,
+        { method: 'DELETE' });
+      if (!res.ok) throw new Error('unlock failed: ' + res.status);
+      // Update local cache.
+      if (Array.isArray(task.extras)) {
+        task.extras = task.extras.filter(k => k !== sessionKey);
+      }
+      this.manualRefresh();
+    } catch (e) {
+      console.warn('[TaskManager] unlockSessionFromActiveTask failed:', e);
+    }
   }
 
   _inferBestSessionByContextFolder(contextFolder) {
