@@ -229,10 +229,15 @@ export class TaskManager {
    */
   refresh() {
     if (this._activeTaskId) {
-      this._reconcileMembersAgainstActiveTask();
-      this._borrowTaskWindows();
+      const r1 = this._reconcileMembersAgainstActiveTask();
+      const r2 = this._borrowTaskWindows();
       this._ensureTaskFiles();
-      this._scheduleAutoLayout();
+      // Only schedule layout when the visible window set actually changed.
+      // Critical to break the loop: _applyAutoLayout's wm._notify call
+      // triggers onWindowsChanged → refresh, and if refresh unconditionally
+      // re-schedules layout we get an infinite redraw cycle that Walter
+      // saw as 'windows shake into place forever'.
+      if (r1 || r2) this._scheduleAutoLayout();
     }
     this._renderTopBar();
   }
@@ -338,6 +343,7 @@ export class TaskManager {
     const wm = this.app.wm;
     if (!wm) return;
 
+    let changed = false;
     for (const [winId, win] of wm.windows) {
       if (win.type !== 'chat' && win.type !== 'terminal') continue;
       if (this._members.has(winId)) continue;
@@ -358,11 +364,13 @@ export class TaskManager {
         win._desktopId = TASK_DESKTOP_ID;
       }
       this._show(win);
+      changed = true;
       // Window landed → release the spawn marker so a future explicit
       // refresh can spawn again if this window dies.
       this._clearSpawnMarker(key);
     }
-    wm._reflowWindows?.();
+    if (changed) wm._reflowWindows?.();
+    return changed;
   }
 
   _markSpawning(key) {
@@ -383,15 +391,18 @@ export class TaskManager {
     if (!wm) return;
     const dm = this.app.desktopManager;
 
+    let changed = false;
     for (const [winId, meta] of [...this._members]) {
       const win = wm.windows.get(winId);
-      if (!win) { this._members.delete(winId); this._cancelIdleClose(winId); continue; }
+      if (!win) { this._members.delete(winId); this._cancelIdleClose(winId); changed = true; continue; }
       const key = this._sessionKeyForWindow(winId, win);
       const isMatch = key && allowed.has(key);
 
       if (isMatch) {
+        const wasHidden = !!(win._hiddenByTask || win._hiddenByDesktop);
         meta.taskId = this._activeTaskId;
         this._show(win);
+        if (wasHidden) changed = true;
         // Coming back into a task this session belongs to — cancel any
         // pending close so we don't kill it right after revealing it.
         this._cancelIdleClose(winId);
@@ -401,16 +412,16 @@ export class TaskManager {
           this._hideByDesktop(win);
           this._members.delete(winId);
           this._cancelIdleClose(winId);
+          changed = true;
         } else {
-          // Auto-spawn we created. Limbo as before, but ALSO schedule an
-          // idle close so it doesn't sit forever consuming a claude
-          // process. Safe because _maybeCloseIfIdle re-checks busy state
-          // at fire time and re-arms if anything's running.
+          const wasVisible = !win._hiddenByTask;
           this._hideByTask(win);
           this._scheduleIdleClose(winId);
+          if (wasVisible) changed = true;
         }
       }
     }
+    return changed;
   }
 
   // ── Idle-close lifecycle for orphaned auto-spawn members ─────
@@ -625,9 +636,30 @@ export class TaskManager {
 
   // ── Layout ───────────────────────────────────────────────────
 
+  /**
+   * Debounced layout scheduler. Collapses rapid calls into ONE layout
+   * pass 300 ms after the last schedule, which is essential because:
+   *
+   *   - setActiveTask schedules a layout, then each of the 3 spawned
+   *     chat windows triggers wm.onWindowsChanged → refresh → another
+   *     schedule, plus the old code fired the layout TWICE per schedule
+   *     (rAF + 1500 ms). That stacked to ~6-8 layouts per task entry
+   *     with overlapping 220 ms position animations, which Walter saw
+   *     as 'windows shake into place ~once per second'.
+   *
+   *   - _applyAutoLayout calls wm._notify() at the end (so layoutManager
+   *     debounces an autosave). _notify also runs onWindowsChanged →
+   *     refresh, which previously always re-scheduled layout. That's a
+   *     self-perpetuating loop. The fix here (debounce) + the change
+   *     to refresh() (skip _scheduleAutoLayout when nothing changed)
+   *     together break the loop.
+   */
   _scheduleAutoLayout() {
-    requestAnimationFrame(() => this._applyAutoLayout());
-    setTimeout(() => this._applyAutoLayout(), 1500);
+    if (this._layoutTimer) clearTimeout(this._layoutTimer);
+    this._layoutTimer = setTimeout(() => {
+      this._layoutTimer = null;
+      this._applyAutoLayout();
+    }, 300);
   }
 
   _applyAutoLayout() {
