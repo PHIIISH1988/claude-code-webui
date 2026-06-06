@@ -136,28 +136,76 @@ function extractSessionMeta(filePath) {
     if (cached && cached.mtimeMs === mtimeMs) return cached.meta;
   } catch {}
 
+  // We stream the JSONL chunk-by-chunk until cwd AND name are found, or
+  // we hit the read cap. The previous implementation used a single 32 KB
+  // read at offset 0 which silently truncated when an early JSONL line
+  // exceeded that buffer.
+  //
+  // Walter's real failure case: the 3rd line of his
+  // finance_supermicro-loan_260520 session was a 51 KB hook_success
+  // event. The 32 KB buffer ate part of it, JSON.parse failed, cwd
+  // stayed empty, and the caller fell back to recoverCwdFromProjDir
+  // which is lossy ('_' and '.' both collapse to '-'). Downstream this
+  // broke any matcher that compared the surfaced cwd to a real
+  // filesystem path — task workspace inference being the most visible.
+  //
+  // READ_CAP_BYTES guards against a pathological file with neither cwd
+  // nor user message reading forever. 10 MB sits well above any
+  // realistic single-line size we've seen.
+  const CHUNK_BYTES = 65536;
+  const READ_CAP_BYTES = 10 * 1024 * 1024;
+
   let cwd = '', name = '';
   try {
     const fd = fs.openSync(filePath, 'r');
-    const buf = Buffer.alloc(32768);
-    const bytesRead = fs.readSync(fd, buf, 0, 32768, 0);
-    fs.closeSync(fd);
-    for (const line of buf.toString('utf-8', 0, bytesRead).split('\n')) {
-      if (!line.trim()) continue;
-      try {
-        const d = JSON.parse(line);
-        if (!cwd && d.cwd) cwd = d.cwd;
-        if (d.type === 'user' && !name) {
-          const msg = d.message;
-          if (msg?.content) {
-            const content = Array.isArray(msg.content)
-              ? (msg.content.find(c => c.type === 'text')?.text || '')
-              : String(msg.content);
-            name = content.split('\n')[0].substring(0, 80);
-          }
+    try {
+      const buf = Buffer.alloc(CHUNK_BYTES);
+      let leftover = '';
+      let pos = 0;
+      let done = false;
+      while (!done && pos < READ_CAP_BYTES) {
+        const n = fs.readSync(fd, buf, 0, CHUNK_BYTES, pos);
+        if (n === 0) break;
+        pos += n;
+        const text = leftover + buf.toString('utf-8', 0, n);
+        const split = text.split('\n');
+        leftover = split.pop() ?? '';
+        for (const line of split) {
+          if (!line.trim()) continue;
+          try {
+            const d = JSON.parse(line);
+            if (!cwd && d.cwd) cwd = d.cwd;
+            if (d.type === 'user' && !name) {
+              const msg = d.message;
+              if (msg?.content) {
+                const content = Array.isArray(msg.content)
+                  ? (msg.content.find(c => c.type === 'text')?.text || '')
+                  : String(msg.content);
+                name = content.split('\n')[0].substring(0, 80);
+              }
+            }
+            if (cwd && name) { done = true; break; }
+          } catch {}
         }
-        if (cwd && name) break;
-      } catch {}
+      }
+      // Final attempt on the trailing fragment (file may end without newline).
+      if (!done && leftover.trim()) {
+        try {
+          const d = JSON.parse(leftover);
+          if (!cwd && d.cwd) cwd = d.cwd;
+          if (d.type === 'user' && !name) {
+            const msg = d.message;
+            if (msg?.content) {
+              const content = Array.isArray(msg.content)
+                ? (msg.content.find(c => c.type === 'text')?.text || '')
+                : String(msg.content);
+              name = content.split('\n')[0].substring(0, 80);
+            }
+          }
+        } catch {}
+      }
+    } finally {
+      fs.closeSync(fd);
     }
   } catch {}
 

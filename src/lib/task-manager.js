@@ -190,28 +190,17 @@ export class TaskManager {
 
   _inferBestSessionByContextFolder(contextFolder) {
     if (!contextFolder) return null;
-    // Claude Code's project-dir encoding is `cwd.replace(/[/._]/g, '-')` —
-    // it's lossy because forward-slashes, dots and underscores all collapse
-    // to dashes. When the cwd is reconstructed from the dir name, dots and
-    // underscores in the original path show up as dashes in s.cwd.
-    //
-    // Walter's claude-ops folders follow the convention `{ws}_{slug}_{date}`
-    // with underscores between sections but dashes inside slug, e.g.
-    // `finance_supermicro-loan_260520`. The reconstructed cwd ends with
-    // `finance-supermicro-loan-260520`. Naive `===` never matches.
-    //
-    // We normalise BOTH sides through the same lossy projection before
-    // comparing. Worst case this produces a false positive when two
-    // distinct context folders projection-collide — Walter's naming
-    // convention makes that very unlikely.
-    const normalise = (s) => s.replace(/[._]/g, '-');
-    const wantedKey = normalise(contextFolder);
+    // Exact string comparison. The lossy normalize workaround here was
+    // reverted once we fixed the real bug — extractSessionMeta in
+    // session-store.js used a 32 KB single-read that truncated big early
+    // JSONL events (hook_success can be 50 KB+) and silently dropped the
+    // cwd. Streaming chunks until found makes s.cwd accurate again.
     const sessions = this.app.sidebar?._allSessions || [];
     const matches = [];
     for (const s of sessions) {
       if (!s.cwd) continue;
       const cwdLast = s.cwd.replace(/\/+$/, '').split('/').pop();
-      if (normalise(cwdLast) !== wantedKey) continue;
+      if (cwdLast !== contextFolder) continue;
       const id = s.backendSessionId || s.sessionId;
       if (!id) continue;
       matches.push(s);
