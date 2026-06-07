@@ -166,18 +166,76 @@ class TaskStore extends EventEmitter {
     // Standard frontmatter: ---\n<yaml>\n---\n<body>
     const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
     if (!m) return { frontmatter: {}, fmText: '', body: content, hadFrontmatter: false };
-    let frontmatter = {};
     try {
-      frontmatter = YAML.parse(m[1]) || {};
+      const frontmatter = YAML.parse(m[1]) || {};
       if (typeof frontmatter !== 'object' || Array.isArray(frontmatter)) {
         throw new Error('frontmatter is not an object');
       }
+      return { frontmatter, fmText: m[1], body: m[2], hadFrontmatter: true };
     } catch (e) {
-      const err = new Error(`YAML parse: ${e.message}`);
-      err.cause = e;
-      throw err;
+      // Strict YAML failed — typically one free-text field (origin_note,
+      // title, deliverable) with an unescaped nested quote or a stray
+      // colon. A single bad line shouldn't blank the WHOLE task. Recover
+      // whatever simple `key: value` scalars we can with a tolerant
+      // line scan, but still surface parseError so the card shows a ⚠
+      // and Walter knows the source file needs a real fix.
+      const frontmatter = this._lenientFrontmatter(m[1]);
+      return {
+        frontmatter,
+        fmText: m[1],
+        body: m[2],
+        hadFrontmatter: true,
+        parseError: `YAML parse: ${e.message}`,
+      };
     }
-    return { frontmatter, fmText: m[1], body: m[2], hadFrontmatter: true };
+  }
+
+  /**
+   * Tolerant frontmatter recovery used only when strict YAML.parse throws.
+   * Scans top-level `key: value` lines and extracts the simple scalars and
+   * inline arrays the UI actually needs (id, title, status, priority,
+   * context_folder, owner, tags, etc). Deliberately dumb: it skips any line
+   * it can't confidently interpret rather than guessing, so a malformed
+   * line is dropped instead of corrupting a neighbour. Nested/multiline
+   * YAML structures are not recovered — those fields just stay absent,
+   * which is fine because the card only needs the flat scalars.
+   */
+  _lenientFrontmatter(text) {
+    const out = {};
+    for (const rawLine of text.split(/\r?\n/)) {
+      const line = rawLine.replace(/\s+$/, '');
+      // Only top-level keys (no indentation), shaped `key: value`.
+      const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*):\s?(.*)$/);
+      if (!m) continue;
+      const key = m[1];
+      let val = m[2];
+      if (val === '') continue; // block scalar / nested — skip, can't flatten
+      // Inline array: [a, b, c]
+      if (/^\[.*\]$/.test(val)) {
+        const inner = val.slice(1, -1).trim();
+        out[key] = inner
+          ? inner.split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean)
+          : [];
+        continue;
+      }
+      // Strip a single layer of matching surrounding quotes. We intentionally
+      // do NOT try to honour internal escaping — the whole point is this line
+      // was un-parseable YAML, so we just take the human-readable remainder.
+      if ((val.startsWith('"') && val.endsWith('"') && val.length >= 2) ||
+          (val.startsWith("'") && val.endsWith("'") && val.length >= 2)) {
+        val = val.slice(1, -1);
+      } else if (val.startsWith('"') || val.startsWith("'")) {
+        // Opening quote but no clean close (the exact failure mode) — drop
+        // the opening quote and keep the rest as plain text.
+        val = val.slice(1);
+      }
+      // Coerce a few well-known literals.
+      if (val === 'null') out[key] = null;
+      else if (val === 'true') out[key] = true;
+      else if (val === 'false') out[key] = false;
+      else out[key] = val;
+    }
+    return out;
   }
 
   async _loadFile(fp, silent = false) {
@@ -192,7 +250,11 @@ class TaskStore extends EventEmitter {
       const parsed = this._parseFrontmatter(content);
       frontmatter = parsed.frontmatter;
       body = parsed.body;
+      // _parseFrontmatter no longer throws on bad YAML — it recovers what
+      // it can via the lenient scan and reports parseError as a field.
+      if (parsed.parseError) parseError = parsed.parseError;
     } catch (e) {
+      // Only hit on a genuinely unreadable file (fs error etc).
       parseError = String(e.message || e);
     }
 
