@@ -463,6 +463,20 @@ class Sidebar {
   }
 
   _render() {
+    // Tasks tab dispatch MUST happen before any session filtering. The
+    // session path below early-returns 'No sessions' when the filter text
+    // matches no session — and a task-oriented query (e.g. 'ondalabs')
+    // almost never matches a session cwd/name. That early return fired
+    // before the tab dispatch at the bottom, so on the Tasks tab any
+    // search that didn't coincidentally match a session showed 'No
+    // sessions' and the task list never rendered. _renderTasks has its
+    // own filter against the task fields.
+    if (!this._mobileMode && this._activeTab === 'tasks') {
+      this.listEl.innerHTML = '';
+      this._renderTasks();
+      return;
+    }
+
     const f = (document.getElementById('session-filter')?.value || '').toLowerCase();
     let sessions = this._allSessions;
 

@@ -95,15 +95,30 @@ export function installSidebarRenderTasks(SidebarClass) {
     });
 
     // Apply text filter (re-use existing #session-filter input — same box,
-    // different matching scope for Tasks tab).
-    const f = (document.getElementById('session-filter')?.value || '').toLowerCase();
-    const filtered = f ? tasks.filter(t =>
-      ((t.id || '').toLowerCase().includes(f))
-      || ((t.title || '').toLowerCase().includes(f))
-      || ((t.context_folder || '').toLowerCase().includes(f))
-      || ((t.priority || '').toLowerCase().includes(f))
-      || ((t.status || '').toLowerCase().includes(f))
-    ) : tasks;
+    // different matching scope for Tasks tab). Multi-term AND match across
+    // a wide field set so partial/keyword queries land:
+    //   - id, title, context_folder, priority, status (structured)
+    //   - tags (array → joined)
+    //   - owner, contributors (who's on it)
+    //   - _path (catches tasks whose frontmatter failed to parse — those
+    //     only have id + _path, and the human-recognisable slug often lives
+    //     in the folder/file name, e.g. T-260603-ondalabs-...)
+    //   - _body (the task's prose — lets you find a task by a phrase you
+    //     remember from its content even if it's not in the title)
+    // Multiple space-separated terms must ALL match (somewhere), so
+    // 'onda contract' narrows rather than widens.
+    const f = (document.getElementById('session-filter')?.value || '').trim().toLowerCase();
+    const terms = f ? f.split(/\s+/) : [];
+    const filtered = terms.length ? tasks.filter(t => {
+      const hay = [
+        t.id, t.title, t.context_folder, t.priority, t.status,
+        Array.isArray(t.tags) ? t.tags.join(' ') : t.tags,
+        t.owner,
+        Array.isArray(t.contributors) ? t.contributors.join(' ') : t.contributors,
+        t._path, t._body,
+      ].filter(Boolean).join('  ').toLowerCase();
+      return terms.every(term => hay.includes(term));
+    }) : tasks;
 
     this.listEl.appendChild(this._buildTaskTools());
     this.listEl.appendChild(this._buildFocusArea(filtered));
