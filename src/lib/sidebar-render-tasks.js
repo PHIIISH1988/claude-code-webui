@@ -20,7 +20,7 @@
  * workspace switch yet). All driven by app._allTasks + app.getFocusSlots().
  */
 
-import { renderTaskCard, TASK_PRIORITY_ORDER } from './task-card.js';
+import { renderTaskCard, TASK_PRIORITY_ORDER, lastTouchTimestamp } from './task-card.js';
 import { escHtml, createPopover } from './utils.js';
 
 // Persistent UI state for the Tasks tab (per browser, localStorage).
@@ -46,10 +46,11 @@ const GROUP_BY_OPTIONS = [
 ];
 
 const SORT_OPTIONS = [
-  { value: 'priority', label: 'Priority' },
-  { value: 'updated',  label: 'Updated' },
-  { value: 'created',  label: 'Created' },
-  { value: 'title',    label: 'Title' },
+  { value: 'priority',     label: 'Priority' },
+  { value: 'last-touched', label: 'Last touched (stalest first)' },
+  { value: 'updated',      label: 'Updated' },
+  { value: 'created',      label: 'Created' },
+  { value: 'title',        label: 'Title' },
 ];
 
 export function installSidebarRenderTasks(SidebarClass) {
@@ -269,6 +270,21 @@ export function installSidebarRenderTasks(SidebarClass) {
           this.app.openEditor(filePath, filePath.split('/').pop());
         }
       },
+      onMarkTouched: async (id) => {
+        // Manual fallback for off-agent work. The canonical mechanism is
+        // agents bumping last_touched_at inside their [T-XXX] commits;
+        // this is for when Walter does the work himself (email sent
+        // outside webUI, phone call, manual sub-step) and wants the
+        // staleness counter to reset.
+        try {
+          await fetch(`/api/tasks/${encodeURIComponent(id)}/touch`, { method: 'POST' });
+        } catch (e) {
+          console.warn('[tasks] touch failed:', e);
+        }
+        // The server emits task-updated via WS → App._setupTasks listener
+        // updates _allTasks → _notifyTasksChanged re-renders. Don't double
+        // re-render here.
+      },
     });
   };
 
@@ -318,6 +334,19 @@ export function installSidebarRenderTasks(SidebarClass) {
     if (by === 'updated') return tasks.sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
     if (by === 'created') return tasks.sort((a, b) => (b.created || '').localeCompare(a.created || ''));
     if (by === 'title')   return tasks.sort((a, b) => (a.title || a.id || '').localeCompare(b.title || b.id || ''));
+    if (by === 'last-touched') {
+      // Stalest first = oldest timestamp first = smallest ms first.
+      // Tasks with no parseable timestamp at all sink to the bottom so they
+      // don't drown out actionable stale work.
+      return tasks.sort((a, b) => {
+        const ta = lastTouchTimestamp(a);
+        const tb = lastTouchTimestamp(b);
+        if (!ta && !tb) return 0;
+        if (!ta) return 1;
+        if (!tb) return -1;
+        return ta.ms - tb.ms;
+      });
+    }
     return tasks;
   };
 }

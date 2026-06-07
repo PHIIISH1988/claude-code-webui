@@ -48,6 +48,7 @@
  */
 
 import { DesktopManager } from './desktop-manager.js';
+import { lastTouchSignal } from './task-card.js';
 
 const TASK_DESKTOP_ID = DesktopManager.TASK_DESKTOP_ID;
 
@@ -829,6 +830,7 @@ export class TaskManager {
         <span class="task-active-label">🎯</span>
         <span class="task-active-name"></span>
         <span class="task-active-status"></span>
+        <span class="task-active-touched"></span>
         <button class="task-active-back" title="Leave Task Desktop">× Leave</button>
       `;
       toolbar.appendChild(bar);
@@ -846,6 +848,19 @@ export class TaskManager {
     const priority = task.priority || 'normal';
     statusEl.textContent = `${status} · ${priority}`;
     statusEl.className = `task-active-status status-${status} priority-${priority}`;
+
+    // Last-touched indicator in the top bar — reuses the same lastTouchSignal
+    // helper as the sidebar cards so the staleness story is consistent.
+    const touchEl = this._topBar.querySelector('.task-active-touched');
+    const sig = lastTouchSignal(task);
+    if (sig) {
+      touchEl.textContent = `last touched ${sig.label}`;
+      touchEl.title = `${sig.source} · ${sig.iso}`;
+      touchEl.className = `task-active-touched task-touched ${sig.tierClass}`;
+    } else {
+      touchEl.textContent = '';
+      touchEl.className = 'task-active-touched';
+    }
   }
 
   _notify() {

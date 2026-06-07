@@ -103,4 +103,26 @@ router.delete('/api/tasks/:id/extras/:sessionKey', async (req, res) => {
   }
 });
 
+// ── POST /api/tasks/:id/touch ──────────────────────────────────
+// Manual "Mark touched now" affordance. Sets last_touched_at to the
+// server's current time and commits as webui-auto. Use sparingly: the
+// canonical path per TASK-SYSTEM-DESIGN § 2.11 is for agents to bump
+// last_touched_at inside their own [T-XXX]-tagged commit. This endpoint
+// is the fallback for off-agent work (Walter sent an email externally,
+// made a phone call, finished a sub-step manually, etc).
+router.post('/api/tasks/:id/touch', async (req, res) => {
+  if (!requireStore(res)) return;
+  try {
+    // Match the ISO-with-offset format used elsewhere in the task system.
+    // Date.toISOString gives UTC; we tolerate both forms (the rule says
+    // shell-fetch local time, but for an automated webUI bump UTC is
+    // unambiguous and easier to compare).
+    const now = new Date().toISOString();
+    const result = await _taskStore.update(req.params.id, { last_touched_at: now });
+    res.json(result);
+  } catch (e) {
+    res.status(400).json({ error: String(e.message || e) });
+  }
+});
+
 module.exports = { router, setup };

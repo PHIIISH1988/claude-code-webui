@@ -342,6 +342,24 @@ html, body {
   color: #f39c12; font-size: 11px; cursor: help;
 }
 
+/* Last-touched relative time badge. Tiers per TASK-SYSTEM-DESIGN § 2.11 +
+ * lastTouchSignal() in task-card.js. Always last on the row so the timestamp
+ * sits at the right edge where Walter expects 'how stale' info. */
+.task-touched {
+  font-size: 10px;
+  margin-left: auto;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-variant-numeric: tabular-nums;
+  cursor: help;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.task-touched.tier-fresh  { color: var(--text-dim);    background: transparent; }
+.task-touched.tier-normal { color: var(--text);        background: var(--bg-input); }
+.task-touched.tier-warn   { color: #f39c12;            background: rgba(243, 156, 18, 0.12); font-weight: 600; }
+.task-touched.tier-stale  { color: #e74c3c;            background: rgba(231, 76, 60, 0.15);  font-weight: 600; }
+
 .task-item-card.active-task {
   background: rgba(99, 102, 241, 0.15);
   border-left-color: var(--accent);

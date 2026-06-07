@@ -57,6 +57,11 @@ const TASK_FOLDER_RE = /^T-\d{6}-[a-z0-9][a-z0-9-]*$/;
 const WRITABLE_FIELDS = new Set([
   'status', 'priority', 'sessions', 'extras',
   'has_workspace', 'archived_at', 'updated',
+  // Per TASK-SYSTEM-DESIGN § 2.11 + GIT.md: agents bump this on every
+  // commit whose title carries the task's [T-XXX] suffix. webUI also
+  // exposes a manual 'Mark touched now' right-click as a fallback for
+  // off-agent work (Walter sent an email, made a phone call, etc).
+  'last_touched_at',
 ]);
 
 class TaskStore extends EventEmitter {

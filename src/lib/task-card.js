@@ -95,6 +95,19 @@ export function renderTaskCard(task, ctx) {
     card.appendChild(badge);
   }
 
+  // Last-touched relative time badge (per TASK-SYSTEM-DESIGN § 2.11).
+  // Falls back to `updated` then `created` so old tasks (no field) still
+  // show *something*; otherwise Walter would see '—' on every legacy task
+  // and lose the at-a-glance staleness signal entirely.
+  const touch = lastTouchSignal(task);
+  if (touch) {
+    const tEl = document.createElement('span');
+    tEl.className = 'task-touched ' + touch.tierClass;
+    tEl.textContent = touch.label;
+    tEl.title = `${touch.source} · ${touch.iso}`;
+    card.appendChild(tEl);
+  }
+
   // Parse-error indicator (TaskStore marked it)
   if (task._parseError) {
     const err = document.createElement('span');
@@ -117,6 +130,11 @@ export function renderTaskCard(task, ctx) {
       { label: ctx.pinned ? 'Unpin from Focus' : 'Pin to Focus',
         action: () => ctx.onTogglePin && ctx.onTogglePin(task.id) },
     ];
+    if (typeof ctx.onMarkTouched === 'function') {
+      items.push({ separator: true });
+      items.push({ label: '✓ Mark touched now',
+        action: () => ctx.onMarkTouched(task.id) });
+    }
     if (task._path && typeof ctx.onOpenFile === 'function') {
       items.push({ separator: true });
       items.push({ label: 'Open task file', action: () => ctx.onOpenFile(task._path) });
@@ -128,3 +146,50 @@ export function renderTaskCard(task, ctx) {
 }
 
 export const TASK_PRIORITY_ORDER = { urgent: 0, high: 1, normal: 2, low: 3 };
+
+/**
+ * Returns a {iso, ms, source} for the "most relevant timestamp" used to drive
+ * the relative-time badge AND the Last-touched sort. Preference order matches
+ * the doc: last_touched_at (canonical) → updated (frontmatter mtime) →
+ * created. Returns null only if all three are missing.
+ */
+export function lastTouchTimestamp(task) {
+  for (const field of ['last_touched_at', 'updated', 'created']) {
+    const v = task?.[field];
+    if (!v) continue;
+    const ms = Date.parse(v);
+    if (Number.isFinite(ms)) return { iso: v, ms, source: field };
+  }
+  return null;
+}
+
+/**
+ * For the task card label only — wraps lastTouchTimestamp with a relative
+ * string ('5d', '2h', 'just now', '3w') and a CSS tier class. Tier
+ * thresholds match the doc's color guidance (≤1d / 1-3d / 4-7d / 8+d).
+ */
+export function lastTouchSignal(task) {
+  const ts = lastTouchTimestamp(task);
+  if (!ts) return null;
+  const now = Date.now();
+  const diffMs = Math.max(0, now - ts.ms);
+  const day = 24 * 60 * 60 * 1000;
+  const hour = 60 * 60 * 1000;
+  const min = 60 * 1000;
+
+  let label;
+  if (diffMs < min) label = 'now';
+  else if (diffMs < hour) label = `${Math.floor(diffMs / min)}m`;
+  else if (diffMs < day) label = `${Math.floor(diffMs / hour)}h`;
+  else if (diffMs < 7 * day) label = `${Math.floor(diffMs / day)}d`;
+  else if (diffMs < 30 * day) label = `${Math.floor(diffMs / (7 * day))}w`;
+  else label = `${Math.floor(diffMs / (30 * day))}mo`;
+
+  let tierClass;
+  if (diffMs <= day) tierClass = 'tier-fresh';
+  else if (diffMs <= 3 * day) tierClass = 'tier-normal';
+  else if (diffMs <= 7 * day) tierClass = 'tier-warn';
+  else tierClass = 'tier-stale';
+
+  return { label, tierClass, iso: ts.iso, source: ts.source };
+}
