@@ -200,7 +200,11 @@ export function installSidebarRenderTasks(SidebarClass) {
     const sorted = this._sortTasks(tasks.slice());
 
     if (this._taskView.groupBy === 'none') {
-      for (const t of sorted) wrap.appendChild(this._buildTaskCard(t, false));
+      let prevId = null;
+      for (const t of sorted) {
+        wrap.appendChild(this._buildTaskCard(t, false, prevId));
+        prevId = t.id;
+      }
       return wrap;
     }
 
@@ -225,21 +229,35 @@ export function installSidebarRenderTasks(SidebarClass) {
 
       const body = document.createElement('div');
       body.className = 'task-group-body';
-      for (const t of items) body.appendChild(this._buildTaskCard(t, false));
+      // prevId resets PER GROUP — the first task of a new group is never
+      // a 'subtask of the last task of the previous group', even though
+      // visually they're consecutive in DOM order.
+      let prevId = null;
+      for (const t of items) {
+        body.appendChild(this._buildTaskCard(t, false, prevId));
+        prevId = t.id;
+      }
       groupEl.appendChild(body);
       wrap.appendChild(groupEl);
     }
     return wrap;
   };
 
-  proto._buildTaskCard = function(task, selected) {
+  proto._buildTaskCard = function(task, selected, prevTaskId) {
     const activeTaskId = this.app.taskManager?.getActiveTaskId() || null;
     const isActive = activeTaskId === task.id;
+    // Only indent as subtask when the IMMEDIATELY-PRECEDING rendered task
+    // is actually this task's parent. Walter saw an unrelated task (legal
+    // ApexStrats) with a coincidentally-priority-adjacent task (ops Vouch
+    // whose part_of points to a third task) looking like parent/child.
+    // The frontmatter relationship is preserved; only the misleading
+    // visual indent is gated on real adjacency.
+    const showAsSubtask = !!task.part_of && prevTaskId === task.part_of;
     return renderTaskCard(task, {
       pinned: this.app.isTaskInFocus(task.id),
       selected: selected || isActive,
       active: isActive,
-      subTask: !!task.part_of,
+      subTask: showAsSubtask,
       onTogglePin: (id) => {
         if (this.app.isTaskInFocus(id)) this.app.unpinTaskFromFocus(id);
         else this.app.pinTaskToFocus(id);
