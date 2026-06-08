@@ -295,11 +295,17 @@ html, body {
 
 .task-item-card {
   display: flex; align-items: center; gap: 4px;
-  padding: 4px 8px; margin: 1px 0;
+  padding: 6px 8px; margin: 0;
   border-left: 2px solid transparent;
+  /* Hairline row separator — uses the standard --border divider weight
+   * (same as other sidebar dividers) so rows read distinctly, like an
+   * email list. 55%-of-border was too faint to fix the 'blurs together'
+   * complaint. */
+  border-bottom: 1px solid var(--border);
   cursor: pointer; font-size: 11px;
   color: var(--text); transition: background 0.1s;
 }
+.task-item-card:last-child { border-bottom: none; }
 .task-item-card:hover { background: var(--bg-hover); }
 .task-item-card.selected {
   background: var(--bg-hover); border-left-color: var(--accent);
