@@ -83,6 +83,7 @@ export function installSidebarRender(SidebarClass) {
 
     for (const [cwd, items] of groupEntries) {
       const group = document.createElement('div'); group.className = 'folder-group';
+      group.dataset.collapseKey = cwd; // for highlightSession expand-on-jump
       if (this._collapsedFolders.has(cwd)) group.classList.add('collapsed');
 
       const cwdShort = cwd.replace(/^\/home\/[^/]+/, '~');
@@ -176,6 +177,7 @@ export function installSidebarRender(SidebarClass) {
       const groupEl = document.createElement('div');
       groupEl.className = 'folder-group';
       const collapseKey = 'group:' + groupName;
+      groupEl.dataset.collapseKey = collapseKey; // for highlightSession expand-on-jump
       if (this._collapsedFolders.has(collapseKey)) groupEl.classList.add('collapsed');
 
       const hasLive = groupSessions.some(s => s.status === 'live' || s.status === 'tmux');
@@ -274,6 +276,7 @@ export function installSidebarRender(SidebarClass) {
     if (ungrouped.length > 0) {
       const groupEl = document.createElement('div'); groupEl.className = 'folder-group';
       const collapseKey = 'group:__ungrouped__';
+      groupEl.dataset.collapseKey = collapseKey; // for highlightSession expand-on-jump
       if (this._collapsedFolders.has(collapseKey)) groupEl.classList.add('collapsed');
       const header = document.createElement('div'); header.className = 'folder-header';
       header.innerHTML = `<span class="folder-chevron">\u25BC</span><span class="folder-path" style="direction:ltr;font-style:italic">Ungrouped</span><span class="folder-count">${ungrouped.length}</span>`;

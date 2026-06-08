@@ -157,16 +157,79 @@ class Sidebar {
   highlightSession(sessionId) {
     this.listEl.querySelectorAll('.session-item-card').forEach(c => c.classList.remove('highlighted', 'highlight-flash'));
     if (!sessionId) return;
-    const cards = this.listEl.querySelectorAll('.session-item-card');
-    for (const card of cards) {
-      if (card._sessionId === sessionId) {
-        card.classList.add('highlighted');
-        requestAnimationFrame(() => card.classList.add('highlight-flash'));
-        if (card.scrollIntoViewIfNeeded) card.scrollIntoViewIfNeeded(false);
-        else card.scrollIntoView({ block: 'nearest' });
-        break;
+
+    // Fast path: the card is already rendered and in an expanded folder.
+    let card = this._findRenderedCard(sessionId);
+
+    if (!card) {
+      // The session is in a folder/group that's either lazy-unrendered
+      // (IntersectionObserver hasn't painted its cards) or collapsed
+      // (display:none). Locate the containing .folder-group via its
+      // _lazyItems, force-render it, and expand it so the card exists and
+      // is visible. Works for both the Folders and Groups tabs since both
+      // render sessions inside .folder-group > .folder-sessions.
+      const target = this._locateFolderForSession(sessionId);
+      if (target) {
+        const { group, sessionsDiv } = target;
+        // Force-render lazy cards.
+        if ((sessionsDiv.dataset.lazy === 'pending' || sessionsDiv.dataset.lazy === 'placeholder')
+            && sessionsDiv._lazyItems) {
+          sessionsDiv.innerHTML = '';
+          sessionsDiv.style.minHeight = '';
+          for (const s of sessionsDiv._lazyItems) sessionsDiv.appendChild(this._buildSessionCard(s));
+          sessionsDiv.dataset.lazy = 'rendered';
+        }
+        // Expand if collapsed — and persist the expand so the next render
+        // doesn't re-collapse it out from under the user.
+        if (group.classList.contains('collapsed')) {
+          group.classList.remove('collapsed');
+          const key = group.dataset.collapseKey;
+          if (key) this._collapsedFolders.delete(key);
+        }
+        card = this._findRenderedCard(sessionId);
       }
     }
+
+    if (!card) return;
+    card.classList.add('highlighted');
+    requestAnimationFrame(() => {
+      card.classList.add('highlight-flash');
+      // Scroll the sidebar so the card sits at the TOP of the visible list.
+      // (Walter: the old scrollIntoView 'nearest' left end-of-list items
+      // barely peeking at the bottom edge and easy to miss while flashing.)
+      this._scrollCardToTop(card);
+    });
+  }
+
+  _findRenderedCard(sessionId) {
+    for (const card of this.listEl.querySelectorAll('.session-item-card')) {
+      if (card._sessionId === sessionId) return card;
+    }
+    return null;
+  }
+
+  /** Find the .folder-group + .folder-sessions whose lazy items include the
+   *  given sessionId, without forcing every folder to render. */
+  _locateFolderForSession(sessionId) {
+    for (const group of this.listEl.querySelectorAll('.folder-group')) {
+      const sessionsDiv = group.querySelector('.folder-sessions');
+      const items = sessionsDiv && sessionsDiv._lazyItems;
+      if (!items) continue;
+      if (items.some(s => s.sessionId === sessionId)) return { group, sessionsDiv };
+    }
+    return null;
+  }
+
+  /** Scroll the sidebar's scroll container so `card` is at its top (+8px). */
+  _scrollCardToTop(card) {
+    const scrollRoot = this.listEl.closest('.sidebar-section') || this.listEl.parentElement;
+    if (!scrollRoot) { card.scrollIntoView({ block: 'start' }); return; }
+    const rootRect = scrollRoot.getBoundingClientRect();
+    const cardRect = card.getBoundingClientRect();
+    // Delta from card's current top to the scroll container's top, minus a
+    // small margin. scrollTop clamps itself at the bottom, so an actual
+    // last-item lands as high as the content allows (fully visible).
+    scrollRoot.scrollTop += (cardRect.top - rootRect.top) - 8;
   }
 
   _updateSortBtn(btn) {
