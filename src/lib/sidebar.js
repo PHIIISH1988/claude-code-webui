@@ -222,8 +222,17 @@ class Sidebar {
 
   /** Scroll the sidebar's scroll container so `card` is at its top (+8px). */
   _scrollCardToTop(card) {
-    const scrollRoot = this.listEl.closest('.sidebar-section') || this.listEl.parentElement;
-    if (!scrollRoot) { card.scrollIntoView({ block: 'start' }); return; }
+    // Walk up to the ACTUAL scrollable ancestor. The previous code hardcoded
+    // .sidebar-section, but the real scroller is .session-items (nested
+    // inside it) — .sidebar-section itself isn't overflow-scrollable, so
+    // setting its scrollTop did nothing and the jump silently failed.
+    let scrollRoot = card.parentElement;
+    while (scrollRoot && scrollRoot !== document.body) {
+      const cs = getComputedStyle(scrollRoot);
+      if (/(auto|scroll)/.test(cs.overflowY) && scrollRoot.scrollHeight > scrollRoot.clientHeight + 2) break;
+      scrollRoot = scrollRoot.parentElement;
+    }
+    if (!scrollRoot || scrollRoot === document.body) { card.scrollIntoView({ block: 'start' }); return; }
     const rootRect = scrollRoot.getBoundingClientRect();
     const cardRect = card.getBoundingClientRect();
     // Delta from card's current top to the scroll container's top, minus a
