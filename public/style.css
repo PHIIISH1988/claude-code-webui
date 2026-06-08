@@ -320,8 +320,25 @@ html, body {
   flex-shrink: 0;
 }
 
-.task-card-title {
+/* Two-line text column: id (line 1) above title (line 2). */
+.task-card-text {
   flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 1px;
+  overflow: hidden;
+}
+.task-card-id {
+  font-size: 9px; line-height: 1.2;
+  color: var(--text-dim);
+  font-family: var(--mono-font, ui-monospace, monospace);
+  letter-spacing: 0.2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  cursor: pointer;
+}
+.task-card-id:hover { color: var(--accent); text-decoration: underline; }
+.task-card-id.copied { color: var(--green, #2ecc71); }
+
+.task-card-title {
+  min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 

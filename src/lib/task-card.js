@@ -15,7 +15,7 @@
  *   - Drag to Focus — defer to polish
  */
 
-import { escHtml, showContextMenu } from './utils.js';
+import { escHtml, showContextMenu, copyText } from './utils.js';
 
 const PRIORITY_COLOR = {
   urgent: '#e74c3c',
@@ -80,11 +80,33 @@ export function renderTaskCard(task, ctx) {
   dot.title = `priority: ${task.priority || 'normal'}`;
   card.appendChild(dot);
 
-  // Title (or id if no title)
+  // Two-line text column: line 1 = task id (编号), line 2 = title.
+  // Walter references tasks to agents by id, so the id is shown explicitly
+  // and clicking it copies the full id to the clipboard (stops propagation
+  // so it doesn't also trigger the card's select/activate).
+  const textCol = document.createElement('div');
+  textCol.className = 'task-card-text';
+
+  const idLine = document.createElement('span');
+  idLine.className = 'task-card-id';
+  idLine.textContent = task.id;
+  idLine.title = 'Click to copy task id';
+  idLine.onclick = (e) => {
+    e.stopPropagation();
+    copyText(task.id);
+    const prev = idLine.textContent;
+    idLine.textContent = '✓ copied';
+    idLine.classList.add('copied');
+    setTimeout(() => { idLine.textContent = prev; idLine.classList.remove('copied'); }, 900);
+  };
+  textCol.appendChild(idLine);
+
   const title = document.createElement('span');
   title.className = 'task-card-title';
   title.textContent = task.title || task.id;
-  card.appendChild(title);
+  textCol.appendChild(title);
+
+  card.appendChild(textCol);
 
   // Status badge
   const status = task.status || 'open';
