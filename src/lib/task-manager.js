@@ -676,9 +676,16 @@ export class TaskManager {
     if (this._filesWinId) {
       const win = wm.windows.get(this._filesWinId);
       if (win && win._explorer) {
-        if (win._explorer.currentPath !== folder) {
+        // Only navigate the Files window to the task folder when the ACTIVE
+        // TASK CHANGED (or on first home). Walter reported being locked into
+        // the task folder: the old code re-navigated on every refresh, so
+        // browsing to Downloads to drag a file got yanked back instantly.
+        // Within the same task we leave his navigation alone.
+        if (this._filesHomedTaskId !== this._activeTaskId
+            && win._explorer.currentPath !== folder) {
           try { win._explorer.navigate(folder); } catch {}
         }
+        this._filesHomedTaskId = this._activeTaskId;
         // Make sure it's on Task Desktop and visible.
         if (win._desktopId !== TASK_DESKTOP_ID) win._desktopId = TASK_DESKTOP_ID;
         this._show(win);
@@ -693,6 +700,7 @@ export class TaskManager {
     winInfo._desktopId = TASK_DESKTOP_ID;
     winInfo._taskFilesPin = true; // marker — never auto-borrowed/restored
     this._filesWinId = winInfo.id;
+    this._filesHomedTaskId = this._activeTaskId;
   }
 
   _closeTaskFiles() {
