@@ -333,6 +333,11 @@ html, body {
   overflow: hidden;
 }
 .task-card-id {
+  /* Only as wide as the id text itself (not the full row), so clicks to
+   * the RIGHT of the id fall through to the card → switch/activate, while
+   * clicking the id text → copy. align-self:flex-start shrinks it from the
+   * flex-column's default stretch; max-width:100% lets a long id ellipsize. */
+  align-self: flex-start; max-width: 100%;
   font-size: 9px; line-height: 1.2;
   color: var(--text-dim);
   font-family: var(--mono-font, ui-monospace, monospace);
