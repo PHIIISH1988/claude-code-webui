@@ -342,7 +342,10 @@ class TaskStore extends EventEmitter {
     if (Object.keys(safe).length === 0) {
       return { ok: true, noop: true };
     }
-    safe.updated = new Date().toISOString();
+    // Canonical timestamp format: local ISO-8601 with offset (e.g.
+    // 2026-06-09T14:20:15-07:00), matching TASK-template / task-meta.
+    // (toISOString() emits UTC `…Z` which violated the documented format.)
+    safe.updated = isoLocalOffset();
     return this._enqueueWrite(task._path, taskId, safe);
   }
 
@@ -402,9 +405,16 @@ class TaskStore extends EventEmitter {
     // Surgical edit via Document AST: untouched fields are byte-identical.
     const doc = YAML.parseDocument(parsed.fmText);
     for (const [k, v] of Object.entries(changes)) {
-      doc.set(k, v);
+      const node = doc.createNode(v);
+      // Arrays canonical = inline flow [a, b, c] (matches task-meta /
+      // normalizer), not the yaml lib's default block sequence.
+      if (Array.isArray(v)) node.flow = true;
+      doc.set(k, node);
     }
-    let newFmText = String(doc);
+    // lineWidth:0 disables line wrapping — otherwise the yaml lib reflows
+    // long flow arrays (e.g. a many-tag `tags: [...]`) across multiple
+    // lines on every write, churning untouched fields.
+    let newFmText = doc.toString({ lineWidth: 0 });
     // YAML.Document.toString() guarantees a trailing newline; strip one so the
     // outer `---\n${fmText}---` template doesn't produce a blank line.
     if (newFmText.endsWith('\n')) newFmText = newFmText.slice(0, -1);
@@ -524,6 +534,21 @@ function fmtVal(v) {
   if (Array.isArray(v)) return `[${v.length}]`;
   if (typeof v === 'object') return JSON.stringify(v);
   return String(v);
+}
+
+// Local ISO-8601 with colon offset, e.g. 2026-06-09T14:20:15-07:00.
+// Matches the canonical timestamp format used by TASK-template and the
+// claude-ops task-meta/normalizer. The host runs America/Los_Angeles, so
+// its own offset is authoritative (no tz lib needed).
+function isoLocalOffset() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  const offMin = -d.getTimezoneOffset();
+  const sign = offMin >= 0 ? '+' : '-';
+  const a = Math.abs(offMin);
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T` +
+    `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}` +
+    `${sign}${p(Math.floor(a / 60))}:${p(a % 60)}`;
 }
 
 function shallowFrontmatterEqual(a, b) {
