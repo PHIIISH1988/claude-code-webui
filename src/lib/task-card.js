@@ -58,9 +58,15 @@ export function renderTaskCard(task, ctx) {
     + (ctx.pinned ? ' pinned' : '')
     + (ctx.selected ? ' selected' : '')
     + (ctx.active ? ' active-task' : '')
+    + (ctx.expanded ? ' expanded' : '')
     + (ctx.subTask ? ' subtask' : '');
   card.dataset.taskId = task.id;
   card.title = task.id + (task.title ? ` — ${task.title}` : '');
+
+  // The visible top row. Detail panel (associated sessions) gets appended
+  // below it when expanded, so the card is a vertical container.
+  const row = document.createElement('div');
+  row.className = 'task-card-row';
 
   // Pin toggle (left-most)
   const pinBtn = document.createElement('button');
@@ -71,19 +77,16 @@ export function renderTaskCard(task, ctx) {
     e.stopPropagation();
     if (typeof ctx.onTogglePin === 'function') ctx.onTogglePin(task.id);
   };
-  card.appendChild(pinBtn);
+  row.appendChild(pinBtn);
 
   // Priority dot
   const dot = document.createElement('span');
   dot.className = 'task-priority-dot';
   dot.style.background = PRIORITY_COLOR[task.priority] || PRIORITY_COLOR.normal;
   dot.title = `priority: ${task.priority || 'normal'}`;
-  card.appendChild(dot);
+  row.appendChild(dot);
 
   // Two-line text column: line 1 = task id (编号), line 2 = title.
-  // Walter references tasks to agents by id, so the id is shown explicitly
-  // and clicking it copies the full id to the clipboard (stops propagation
-  // so it doesn't also trigger the card's select/activate).
   const textCol = document.createElement('div');
   textCol.className = 'task-card-text';
 
@@ -106,7 +109,17 @@ export function renderTaskCard(task, ctx) {
   title.textContent = task.title || task.id;
   textCol.appendChild(title);
 
-  card.appendChild(textCol);
+  row.appendChild(textCol);
+
+  // Session-count chip (how many sessions this task is associated with).
+  const sessCount = Array.isArray(ctx.sessions) ? ctx.sessions.length : 0;
+  if (sessCount > 0) {
+    const chip = document.createElement('span');
+    chip.className = 'task-sess-chip';
+    chip.textContent = `⛓ ${sessCount}`;
+    chip.title = `${sessCount} associated session${sessCount > 1 ? 's' : ''}`;
+    row.appendChild(chip);
+  }
 
   // Status badge
   const status = task.status || 'open';
@@ -114,20 +127,17 @@ export function renderTaskCard(task, ctx) {
     const badge = document.createElement('span');
     badge.className = 'task-status-badge ' + (STATUS_CLASS[status] || '');
     badge.textContent = STATUS_LABEL[status];
-    card.appendChild(badge);
+    row.appendChild(badge);
   }
 
-  // Last-touched relative time badge (per TASK-SYSTEM-DESIGN § 2.11).
-  // Falls back to `updated` then `created` so old tasks (no field) still
-  // show *something*; otherwise Walter would see '—' on every legacy task
-  // and lose the at-a-glance staleness signal entirely.
+  // Last-touched relative time badge.
   const touch = lastTouchSignal(task);
   if (touch) {
     const tEl = document.createElement('span');
     tEl.className = 'task-touched ' + touch.tierClass;
     tEl.textContent = touch.label;
     tEl.title = `${touch.source} · ${touch.iso}`;
-    card.appendChild(tEl);
+    row.appendChild(tEl);
   }
 
   // Parse-error indicator (TaskStore marked it)
@@ -136,12 +146,33 @@ export function renderTaskCard(task, ctx) {
     err.className = 'task-parse-error';
     err.textContent = '⚠'; // ⚠
     err.title = task._parseError;
-    card.appendChild(err);
+    row.appendChild(err);
   }
 
-  // Click card body → select
-  card.addEventListener('click', (e) => {
-    if (e.target.closest('.task-pin-btn')) return;
+  // Expand / collapse arrow (rightmost) — toggles the associated-sessions
+  // detail panel. Like the session card's expand button.
+  if (typeof ctx.onExpandToggle === 'function') {
+    const exBtn = document.createElement('button');
+    exBtn.className = 'task-expand-btn';
+    exBtn.textContent = ctx.expanded ? '▾' : '▸'; // ▾ / ▸
+    exBtn.title = 'Show associated sessions';
+    exBtn.onclick = (e) => {
+      e.stopPropagation();
+      ctx.onExpandToggle(ctx.expanded ? null : task.id);
+    };
+    row.appendChild(exBtn);
+  }
+
+  card.appendChild(row);
+
+  // Detail panel (associated sessions) — only when expanded.
+  if (ctx.expanded) {
+    card.appendChild(buildTaskDetail(task, ctx));
+  }
+
+  // Click row body → select (ignore clicks on inline buttons / detail panel).
+  row.addEventListener('click', (e) => {
+    if (e.target.closest('.task-pin-btn, .task-expand-btn, .task-card-id')) return;
     if (typeof ctx.onSelect === 'function') ctx.onSelect(task.id);
   });
 
@@ -165,6 +196,101 @@ export function renderTaskCard(task, ctx) {
   });
 
   return card;
+}
+
+/**
+ * Detail panel shown when a task card is expanded: the list of sessions
+ * associated with this task, plus a "claim focused session" button.
+ *
+ * ctx.sessions: [{ key, session, bound }]  (from TaskManager.resolveTaskSessions)
+ *   - session: the resolved session object (or null if the bound key points
+ *     at a session no longer on disk)
+ *   - bound: true = explicit (task.sessions/extras) | false = cwd-inferred guess
+ * ctx.onOpenSession(key) / ctx.onUnbindSession(key) / ctx.onBindFocused(taskId)
+ */
+function buildTaskDetail(task, ctx) {
+  const panel = document.createElement('div');
+  panel.className = 'task-detail-panel';
+  panel.addEventListener('click', (e) => e.stopPropagation()); // don't select the card
+
+  const sessions = Array.isArray(ctx.sessions) ? ctx.sessions : [];
+
+  const header = document.createElement('div');
+  header.className = 'task-detail-header';
+  header.textContent = sessions.length
+    ? `Associated sessions (${sessions.length})`
+    : 'No associated sessions yet';
+  panel.appendChild(header);
+
+  for (const { key, session, bound } of sessions) {
+    const r = document.createElement('div');
+    r.className = 'task-sess-row';
+
+    // status dot
+    const sdot = document.createElement('span');
+    sdot.className = 'task-sess-dot';
+    const st = session?.status || 'stopped';
+    sdot.style.background = st === 'live' ? 'var(--green,#2ecc71)'
+      : st === 'tmux' ? 'var(--blue,#3498db)'
+      : st === 'stopped' ? 'var(--text-dim)' : 'var(--yellow,#f39c12)';
+    sdot.title = st;
+    r.appendChild(sdot);
+
+    // name (or raw key if session not resolvable)
+    const nameEl = document.createElement('span');
+    nameEl.className = 'task-sess-name';
+    nameEl.textContent = session
+      ? (session.webuiName || session.name || key.slice(key.indexOf(':') + 1, key.indexOf(':') + 9))
+      : `${key.slice(key.indexOf(':') + 1, key.indexOf(':') + 9)}… (missing)`;
+    nameEl.title = key;
+    if (session) {
+      nameEl.classList.add('clickable');
+      nameEl.onclick = () => ctx.onOpenSession && ctx.onOpenSession(key);
+    }
+    r.appendChild(nameEl);
+
+    // bound vs inferred tag
+    const tag = document.createElement('span');
+    tag.className = 'task-sess-tag ' + (bound ? 'bound' : 'inferred');
+    tag.textContent = bound ? '🔒 bound' : '~ inferred';
+    tag.title = bound
+      ? 'Explicitly bound to this task (in frontmatter)'
+      : 'Guessed from the task folder — bind it to make it stick';
+    r.appendChild(tag);
+
+    // unbind (only meaningful for explicit binds)
+    if (bound && typeof ctx.onUnbindSession === 'function') {
+      const ub = document.createElement('button');
+      ub.className = 'task-sess-unbind';
+      ub.textContent = '✕';
+      ub.title = 'Unbind from this task';
+      ub.onclick = () => ctx.onUnbindSession(key);
+      r.appendChild(ub);
+    } else if (!bound && typeof ctx.onBindKey === 'function') {
+      // offer to promote an inferred session to a real bind
+      const bb = document.createElement('button');
+      bb.className = 'task-sess-bindone';
+      bb.textContent = '🔒';
+      bb.title = 'Bind this session to the task';
+      bb.onclick = () => ctx.onBindKey(key);
+      r.appendChild(bb);
+    }
+
+    panel.appendChild(r);
+  }
+
+  // "Claim focused session" — binds whatever chat/terminal window is
+  // currently focused to this task (the button-based binding trigger).
+  if (typeof ctx.onBindFocused === 'function') {
+    const claim = document.createElement('button');
+    claim.className = 'task-detail-claim';
+    claim.innerHTML = '🔗 认领当前 session';
+    claim.title = 'Bind the currently focused session window to this task';
+    claim.onclick = () => ctx.onBindFocused(task.id);
+    panel.appendChild(claim);
+  }
+
+  return panel;
 }
 
 export const TASK_PRIORITY_ORDER = { urgent: 0, high: 1, normal: 2, low: 3 };

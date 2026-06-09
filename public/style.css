@@ -293,25 +293,27 @@ html, body {
   background: var(--bg-input); padding: 0 6px; border-radius: 8px;
 }
 
+/* Card is now a vertical container: a clickable top row + optional detail
+ * panel below (associated sessions). The horizontal flex moved to .task-card-row. */
 .task-item-card {
-  display: flex; align-items: center; gap: 4px;
-  padding: 6px 8px; margin: 0;
+  margin: 0;
   border-left: 2px solid transparent;
-  /* Hairline row separator — uses the standard --border divider weight
-   * (same as other sidebar dividers) so rows read distinctly, like an
-   * email list. 55%-of-border was too faint to fix the 'blurs together'
-   * complaint. */
+  /* Hairline row separator — standard --border weight, like an email list. */
   border-bottom: 1px solid var(--border);
-  cursor: pointer; font-size: 11px;
-  color: var(--text); transition: background 0.1s;
+  font-size: 11px; color: var(--text);
 }
 .task-item-card:last-child { border-bottom: none; }
-.task-item-card:hover { background: var(--bg-hover); }
-.task-item-card.selected {
-  background: var(--bg-hover); border-left-color: var(--accent);
-}
+.task-item-card.selected { border-left-color: var(--accent); }
 .task-item-card.pinned { background: rgba(231,76,60,0.08); }
-.task-item-card.subtask { padding-left: 20px; }
+.task-item-card.expanded { background: var(--bg-input); }
+
+.task-card-row {
+  display: flex; align-items: center; gap: 4px;
+  padding: 6px 8px;
+  cursor: pointer; transition: background 0.1s;
+}
+.task-card-row:hover { background: var(--bg-hover); }
+.task-item-card.subtask .task-card-row { padding-left: 20px; }
 
 .task-pin-btn {
   background: none; border: none; cursor: pointer;
@@ -387,6 +389,47 @@ html, body {
 .task-touched.tier-normal { color: var(--text);        background: var(--bg-input); }
 .task-touched.tier-warn   { color: #f39c12;            background: rgba(243, 156, 18, 0.12); font-weight: 600; }
 .task-touched.tier-stale  { color: #e74c3c;            background: rgba(231, 76, 60, 0.15);  font-weight: 600; }
+
+/* Session-count chip on the row + expand arrow + detail panel */
+.task-sess-chip {
+  font-size: 9px; color: var(--text-dim);
+  background: var(--bg-input); border-radius: 3px;
+  padding: 1px 5px; flex-shrink: 0;
+}
+.task-expand-btn {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-dim); font-size: 10px; padding: 0 2px;
+  flex-shrink: 0; width: 16px;
+}
+.task-expand-btn:hover { color: var(--accent); }
+
+.task-detail-panel {
+  padding: 4px 10px 8px 24px;
+  display: flex; flex-direction: column; gap: 3px;
+  font-size: 10px;
+}
+.task-detail-header { color: var(--text-dim); font-size: 9px; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 2px; }
+.task-sess-row { display: flex; align-items: center; gap: 6px; }
+.task-sess-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.task-sess-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-sess-name.clickable { cursor: pointer; }
+.task-sess-name.clickable:hover { color: var(--accent); text-decoration: underline; }
+.task-sess-tag { font-size: 8px; padding: 1px 4px; border-radius: 3px; flex-shrink: 0; }
+.task-sess-tag.bound { color: var(--green, #2ecc71); background: rgba(46,204,113,0.12); }
+.task-sess-tag.inferred { color: var(--text-dim); background: var(--bg-input); }
+.task-sess-unbind, .task-sess-bindone {
+  background: none; border: none; cursor: pointer; flex-shrink: 0;
+  color: var(--text-dim); font-size: 10px; padding: 0 2px;
+}
+.task-sess-unbind:hover { color: var(--red, #e74c3c); }
+.task-sess-bindone:hover { color: var(--green, #2ecc71); }
+.task-detail-claim {
+  margin-top: 4px; align-self: flex-start;
+  background: var(--bg-input); color: var(--text);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 3px 8px; font-size: 10px; cursor: pointer;
+}
+.task-detail-claim:hover { border-color: var(--accent); color: var(--accent); }
 
 .task-item-card.active-task {
   background: rgba(99, 102, 241, 0.15);

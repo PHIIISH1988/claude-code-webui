@@ -329,21 +329,116 @@ export class TaskManager {
   }
 
   async unlockSessionFromActiveTask(sessionKey) {
-    const task = this.getActiveTask();
+    return this.unlockSessionFromTask(this._activeTaskId, sessionKey);
+  }
+
+  // ── Generalized bind/unbind for ANY task (used by the expandable task
+  //    card's session list, not just the active task) ──
+
+  _taskById(taskId) {
+    return this.app._taskById?.get(taskId) || null;
+  }
+
+  /** Write sessionKey into a task's extras (the explicit binding). */
+  async lockSessionToTask(taskId, sessionKey) {
+    const task = this._taskById(taskId);
+    if (!task || !sessionKey) return;
+    try {
+      const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/extras`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionKey }),
+      });
+      if (!res.ok) throw new Error('lock failed: ' + res.status);
+      task.extras = Array.isArray(task.extras) ? [...task.extras] : [];
+      if (!task.extras.includes(sessionKey)) task.extras.push(sessionKey);
+      if (taskId === this._activeTaskId) this.manualRefresh();
+      this.app._notifyTasksChanged?.();
+    } catch (e) {
+      console.warn('[TaskManager] lockSessionToTask failed:', e);
+    }
+  }
+
+  async unlockSessionFromTask(taskId, sessionKey) {
+    const task = this._taskById(taskId);
     if (!task || !sessionKey) return;
     try {
       const res = await fetch(
-        `/api/tasks/${encodeURIComponent(task.id)}/extras/${encodeURIComponent(sessionKey)}`,
+        `/api/tasks/${encodeURIComponent(taskId)}/extras/${encodeURIComponent(sessionKey)}`,
         { method: 'DELETE' });
       if (!res.ok) throw new Error('unlock failed: ' + res.status);
-      // Update local cache.
-      if (Array.isArray(task.extras)) {
-        task.extras = task.extras.filter(k => k !== sessionKey);
-      }
-      this.manualRefresh();
+      if (Array.isArray(task.extras)) task.extras = task.extras.filter(k => k !== sessionKey);
+      if (taskId === this._activeTaskId) this.manualRefresh();
+      this.app._notifyTasksChanged?.();
     } catch (e) {
-      console.warn('[TaskManager] unlockSessionFromActiveTask failed:', e);
+      console.warn('[TaskManager] unlockSessionFromTask failed:', e);
     }
+  }
+
+  /**
+   * Resolve a task to a display list of its associated sessions:
+   *   [{ key, session, bound }]
+   * - bound=true  → key is explicitly in task.sessions/extras (authoritative)
+   * - bound=false → key came from context_folder inference (a guess)
+   * session is the matching object from sidebar._allSessions (or null if the
+   * bound key points at a session no longer on disk).
+   */
+  resolveTaskSessions(task) {
+    if (!task) return [];
+    const declared = new Set([
+      ...(Array.isArray(task.sessions) ? task.sessions : []),
+      ...(Array.isArray(task.extras) ? task.extras : []),
+    ]);
+    const keys = [...this.getTaskSessionKeys(task)];
+    const allSess = this.app.sidebar?._allSessions || [];
+    return keys.map(key => {
+      const colon = key.indexOf(':');
+      const backend = key.slice(0, colon), id = key.slice(colon + 1);
+      const session = allSess.find(s =>
+        (s.backendSessionId || s.sessionId) === id && (s.backend || 'claude') === backend) || null;
+      return { key, session, bound: declared.has(key) };
+    });
+  }
+
+  /** The sessionKey of the currently focused chat/terminal window, or null. */
+  getFocusedSessionKey() {
+    const winId = this.app.wm?.activeWindowId;
+    if (!winId) return null;
+    const win = this.app.wm.windows.get(winId);
+    if (!win || (win.type !== 'chat' && win.type !== 'terminal')) return null;
+    return this._sessionKeyForWindow(winId, win);
+  }
+
+  /** Bind the currently focused session to a task (the "claim" button). */
+  async bindFocusedSessionToTask(taskId) {
+    const key = this.getFocusedSessionKey();
+    if (!key) { console.warn('[TaskManager] no focused session to bind'); return false; }
+    await this.lockSessionToTask(taskId, key);
+    return true;
+  }
+
+  /** Open / focus a session by its key (resume if stopped, attach if live). */
+  openSessionByKey(key) {
+    const colon = key.indexOf(':');
+    const backend = key.slice(0, colon), id = key.slice(colon + 1);
+    const allSess = this.app.sidebar?._allSessions || [];
+    const sess = allSess.find(s =>
+      (s.backendSessionId || s.sessionId) === id && (s.backend || 'claude') === backend);
+    if (!sess) return;
+    const agentOpts = {
+      backend, backendSessionId: id,
+      agentKind: sess.agentKind || 'primary', agentRole: sess.agentRole || '',
+      agentNickname: sess.agentNickname || '', sourceKind: sess.sourceKind || '',
+      parentThreadId: sess.parentThreadId || null,
+    };
+    try {
+      if (sess.status === 'live' && sess.webuiId) {
+        this.app.attachSession(sess.webuiId, sess.webuiName || sess.name, sess.cwd,
+          { mode: sess.webuiMode || 'chat', ...agentOpts });
+      } else if (sess.status === 'stopped') {
+        this.app.resumeSession(sess.sessionId, sess.cwd, sess.name, { mode: 'chat', ...agentOpts });
+      }
+    } catch (e) { console.warn('[TaskManager] openSessionByKey failed:', e); }
   }
 
   _inferBestSessionByContextFolder(contextFolder) {

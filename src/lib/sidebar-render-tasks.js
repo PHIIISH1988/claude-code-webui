@@ -259,20 +259,33 @@ export function installSidebarRenderTasks(SidebarClass) {
   };
 
   proto._buildTaskCard = function(task, selected, prevTaskId) {
-    const activeTaskId = this.app.taskManager?.getActiveTaskId() || null;
+    const tm = this.app.taskManager;
+    const activeTaskId = tm?.getActiveTaskId() || null;
     const isActive = activeTaskId === task.id;
-    // Only indent as subtask when the IMMEDIATELY-PRECEDING rendered task
-    // is actually this task's parent. Walter saw an unrelated task (legal
-    // ApexStrats) with a coincidentally-priority-adjacent task (ops Vouch
-    // whose part_of points to a third task) looking like parent/child.
-    // The frontmatter relationship is preserved; only the misleading
-    // visual indent is gated on real adjacency.
+    const isExpanded = this._expandedTaskId === task.id;
     const showAsSubtask = !!task.part_of && prevTaskId === task.part_of;
     return renderTaskCard(task, {
       pinned: this.app.isTaskInFocus(task.id),
       selected: selected || isActive,
       active: isActive,
       subTask: showAsSubtask,
+      expanded: isExpanded,
+      // Always resolve so the row's session-count chip is accurate; the
+      // detail panel just reuses the same list when expanded. Cheap at
+      // this task count.
+      sessions: tm?.resolveTaskSessions(task) || [],
+      onExpandToggle: (id) => { this._expandedTaskId = id; this._render(); },
+      onOpenSession: (key) => tm?.openSessionByKey(key),
+      onUnbindSession: (key) => tm?.unlockSessionFromTask(task.id, key),
+      onBindKey: (key) => tm?.lockSessionToTask(task.id, key),
+      onBindFocused: async (id) => {
+        const ok = await tm?.bindFocusedSessionToTask(id);
+        if (ok === false) {
+          alert('没有聚焦的 session 窗口可认领。\n先点一下你想绑定的那个 chat/terminal 窗口让它聚焦，再点认领。');
+        } else {
+          this._render(); // reflect the new binding in the detail panel
+        }
+      },
       onTogglePin: (id) => {
         if (this.app.isTaskInFocus(id)) this.app.unpinTaskFromFocus(id);
         else this.app.pinTaskToFocus(id);
