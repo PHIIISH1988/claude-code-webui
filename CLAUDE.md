@@ -255,7 +255,7 @@ With dtach, there is NO middle layer — xterm.js talks directly to Claude Code'
 **Claude Code's internal session model:**
 - Lock file: `~/.claude/sessions/<PID>.json` → `{pid, sessionId, cwd, startedAt}`
   - Created on start, deleted on graceful exit
-  - `sessionId` changes on each `--resume` (new UUID, but JSONL filename stays original)
+  - NOTE (verified 2026-06-09): plain `--resume` now REUSES the original sessionId (does NOT change it). A new id is created only with explicit `--fork-session`. Earlier Claude Code versions changed the id on every resume; that behavior is obsolete. Also: the running agent can read its own id via the `CLAUDE_CODE_SESSION_ID` env var, and `--session-id <uuid>` assigns a chosen id at creation.
 - JSONL file: `~/.claude/projects/<encodedCwd>/<originalSessionId>.jsonl`
   - Filename = original sessionId (immutable, even after multiple `--resume`)
   - Project dir encoding: `cwd.replace(/[/._]/g, '-')` (e.g. `/home/user/.config` → `-home-user--config`)
