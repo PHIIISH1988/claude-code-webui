@@ -514,6 +514,21 @@ export class TaskManager {
     } catch (e) { console.warn('[TaskManager] openSessionByKey failed:', e); }
   }
 
+  /** All sessionKeys explicitly declared in ANY task's sessions/extras.
+   *  Used to exclude dedicated sessions from cwd inference: once a session
+   *  is bound to some task, it must never be "guessed" for another task.
+   *  Walter hit this: spawning a dedicated session for task A made it the
+   *  folder's most-recent session, so every UNBOUND task in the same
+   *  folder started inferring A's dedicated session as its own. */
+  _allBoundSessionKeys() {
+    const bound = new Set();
+    for (const t of (this.app._allTasks || [])) {
+      if (Array.isArray(t.sessions)) for (const k of t.sessions) if (k) bound.add(k);
+      if (Array.isArray(t.extras)) for (const k of t.extras) if (k) bound.add(k);
+    }
+    return bound;
+  }
+
   _inferBestSessionByContextFolder(contextFolder) {
     if (!contextFolder) return null;
     // Exact string comparison. The lossy normalize workaround here was
@@ -522,6 +537,7 @@ export class TaskManager {
     // JSONL events (hook_success can be 50 KB+) and silently dropped the
     // cwd. Streaming chunks until found makes s.cwd accurate again.
     const sessions = this.app.sidebar?._allSessions || [];
+    const bound = this._allBoundSessionKeys();
     const matches = [];
     for (const s of sessions) {
       if (!s.cwd) continue;
@@ -529,6 +545,9 @@ export class TaskManager {
       if (cwdLast !== contextFolder) continue;
       const id = s.backendSessionId || s.sessionId;
       if (!id) continue;
+      // Skip sessions already dedicated to some task — inference only
+      // considers UNCLAIMED sessions in the folder.
+      if (bound.has(`${s.backend || 'claude'}:${id}`)) continue;
       matches.push(s);
     }
     if (matches.length === 0) return null;
