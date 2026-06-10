@@ -99,12 +99,18 @@ try {
 adapterRegistry.get('claude').config.supportsName = CLAUDE_SUPPORTS_NAME;
 // Discover available models per backend (cached, refreshed periodically)
 const AVAILABLE_MODELS = {
-  claude: [{ id: '', label: 'Default' }, { id: 'opus', label: 'opus (latest, 200k)' }, { id: 'opus[1m]', label: 'opus[1m] (latest, 1M)' }, { id: 'sonnet', label: 'sonnet (latest)' }, { id: 'sonnet[1m]', label: 'sonnet[1m] (latest, 1M)' }, { id: 'haiku', label: 'haiku (latest)' }],
+  claude: [{ id: '', label: 'Default' }, { id: 'fable', label: 'fable (latest, 200k)' }, { id: 'fable[1m]', label: 'fable[1m] (latest, 1M)' }, { id: 'opus', label: 'opus (latest, 200k)' }, { id: 'opus[1m]', label: 'opus[1m] (latest, 1M)' }, { id: 'sonnet', label: 'sonnet (latest)' }, { id: 'sonnet[1m]', label: 'sonnet[1m] (latest, 1M)' }, { id: 'haiku', label: 'haiku (latest)' }],
   codex: [{ id: '', label: 'Default' }],
 };
 function refreshAvailableModels() {
   const aliases = [
     { id: '', label: 'Default' },
+    // fable: new model alias in Claude Code 2.1.170+ (full name e.g.
+    // claude-fable-5). Verified callable incl. the [1m] 1M-context variant.
+    // [1m] is Claude's own alias syntax, passed to --model as-is (no
+    // translation in this codebase).
+    { id: 'fable', label: 'fable (latest, 200k)' },
+    { id: 'fable[1m]', label: 'fable[1m] (latest, 1M context)' },
     { id: 'opus', label: 'opus (latest, 200k)' },
     { id: 'opus[1m]', label: 'opus[1m] (latest, 1M context)' },
     { id: 'sonnet', label: 'sonnet (latest)' },
