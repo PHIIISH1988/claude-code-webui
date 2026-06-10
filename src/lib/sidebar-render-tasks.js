@@ -278,6 +278,7 @@ export function installSidebarRenderTasks(SidebarClass) {
       onOpenSession: (key) => tm?.openSessionByKey(key),
       onUnbindSession: (key) => tm?.unlockSessionFromTask(task.id, key),
       onBindKey: (key) => tm?.lockSessionToTask(task.id, key),
+      onSpawnSession: (id) => tm?.spawnSessionForTask(id),
       onBindFocused: async (id) => {
         const ok = await tm?.bindFocusedSessionToTask(id);
         if (ok === false) {

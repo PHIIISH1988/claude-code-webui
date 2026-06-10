@@ -15,8 +15,14 @@ class WsManager {
     };
     this.ws.onmessage = (e) => {
       let d; try { d = JSON.parse(e.data); } catch { return; }
-      if (d.sessionId) (this.handlers.get(d.sessionId) || []).forEach(h => h(d));
-      this.globalHandlers.forEach(h => h(d));
+      // Dispatch over SNAPSHOTS: one-shot handlers commonly remove
+      // themselves (offGlobal → splice) while we're mid-dispatch, which
+      // shifts the array and silently SKIPS the next handler. Bit us when
+      // two handlers both listened for the same 'created' event —
+      // createSession's self-removing handler made TaskManager's
+      // spawn-bind handler (registered right after it) never fire.
+      if (d.sessionId) [...(this.handlers.get(d.sessionId) || [])].forEach(h => h(d));
+      [...this.globalHandlers].forEach(h => h(d));
     };
     this.ws.onclose = () => {
       this._connected = false;

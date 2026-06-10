@@ -303,7 +303,12 @@ function registerWsHandler(wss, ctx) {
           // Read childPid from wrapper metadata after it has time to spawn
           setTimeout(() => refreshWebuiPids(), 3000);
 
-          ws.send(JSON.stringify({ type: 'created', sessionId: id, name: session.name, cwd, mode: sessionMode }));
+          // Echo the client's requestId (if provided) so concurrent creates
+          // can be correlated. Without it, two in-flight creates (e.g. page-
+          // restore racing a user-triggered spawn) cross-wire: each client-
+          // side one-shot handler claims the FIRST 'created' it sees,
+          // regardless of which request produced it.
+          ws.send(JSON.stringify({ type: 'created', sessionId: id, name: session.name, cwd, mode: sessionMode, requestId: data.requestId || undefined }));
           broadcastActiveSessions();
           break;
         }

@@ -417,6 +417,79 @@ export class TaskManager {
     return true;
   }
 
+  /**
+   * "+ new session for this task" — the task-first auto-binding path.
+   *
+   * Identity strategy: the webUI GENERATES the session uuid upfront and
+   * passes it via `--session-id` (verified working by isolated test, see
+   * TASK-SYSTEM-DESIGN § 2.13 facts). That makes the binding deterministic
+   * at creation time — no polling, no guessing.
+   *
+   * We learned the hard way why polling /api/active is WRONG here: for a
+   * fresh session in a folder that already has sessions, the server's
+   * discovery briefly mis-attributes the most-recent existing JSONL's id
+   * to the new session (folder-claim heuristic) until claude reports its
+   * real id. An early poll grabbed the OLD mega-session's id and bound
+   * the task to the wrong session. Assigning the id upfront eliminates
+   * that whole class of race.
+   *
+   * Flow: spawn (cwd = task's CONTEXT folder — sessions are never "inside"
+   * task folders, § 2.13) → on 'created': send onboarding message (read
+   * TASK.md) + bind the pre-chosen uuid into task.extras. Once bound,
+   * cwd-inference for this task shuts off permanently.
+   *
+   * Known acceptable race (same as createSession's own handler): the
+   * 'created' matcher takes the FIRST creation event — clicking "+" on two
+   * tasks within the same second could cross-wire. The whole codebase
+   * accepts this single-flight assumption for session creation.
+   */
+  async spawnSessionForTask(taskId) {
+    const task = this._taskById(taskId);
+    if (!task) return;
+    const folder = this._taskWorkspaceFolder(task);
+    if (!folder) {
+      console.warn('[TaskManager] spawnSessionForTask: no context folder derivable for', taskId);
+      return;
+    }
+
+    // Activate the task workspace first so the new window lands on the
+    // Task Desktop and gets membered by the normal borrow/refresh flow.
+    if (this._activeTaskId !== taskId) await this.setActiveTask(taskId);
+
+    // Pre-chosen identity. Merge --session-id with the user's global
+    // default extraArgs (passing extraArgs overrides the default, so we
+    // re-include it ourselves).
+    const newId = crypto.randomUUID();
+    const defaults = this.app._getBackendSessionDefaults?.('claude') || {};
+    const mergedExtraArgs = `${defaults.extraArgs || ''} --session-id ${newId}`.trim();
+
+    const shortSlug = task.id.replace(/^T-\d{6}-/, '');
+    const onboard = [
+      `你负责 task ${task.id}${task.title ? `（${task.title}）` : ''}。`,
+      `先读 ${task._path} 了解上下文（Context / Steps / Work Log / Notes），然后简短汇报你的理解和当前状态。`,
+      `后续 Walter 会在这个对话里直接跟你推进这个 task。按 claude-ops 全局规则工作（CLAUDE.md / GIT.md，含 last_touched_at 与 Work Log 纪律）。`,
+    ].join('\n');
+
+    // onCreated runs AFTER the ChatView is wired, and thanks to the
+    // requestId correlation it fires for exactly THIS create — concurrent
+    // creations (e.g. page-restore) can no longer cross-wire. We learned
+    // this the hard way: a reload-restore create raced an earlier version
+    // of this code and the onboarding message landed in the wrong session.
+    this.app.createSession({
+      cwd: folder,
+      name: shortSlug,
+      mode: 'chat',
+      backendSessionId: newId, // identity correct from birth (openSpec/sessionKey)
+      extraArgs: mergedExtraArgs,
+      onCreated: (msg) => {
+        const msgId = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+        this.app.ws.send({ type: 'chat-input', sessionId: msg.sessionId, text: onboard, msgId });
+        // Deterministic bind — we chose the id, no readback needed.
+        this.lockSessionToTask(taskId, `claude:${newId}`);
+      },
+    });
+  }
+
   /** Open / focus a session by its key (resume if stopped, attach if live). */
   openSessionByKey(key) {
     const colon = key.indexOf(':');

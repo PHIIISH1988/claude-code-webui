@@ -423,13 +423,16 @@ html, body {
 }
 .task-sess-unbind:hover { color: var(--red, #e74c3c); }
 .task-sess-bindone:hover { color: var(--green, #2ecc71); }
+.task-detail-actions {
+  margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap;
+}
 .task-detail-claim {
-  margin-top: 4px; align-self: flex-start;
   background: var(--bg-input); color: var(--text);
   border: 1px solid var(--border); border-radius: 4px;
   padding: 3px 8px; font-size: 10px; cursor: pointer;
 }
-.task-detail-claim:hover { border-color: var(--accent); color: var(--accent); }
+.task-detail-claim:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.task-detail-claim:disabled { opacity: 0.6; cursor: default; }
 
 .task-item-card.active-task {
   background: rgba(99, 102, 241, 0.15);

@@ -279,6 +279,25 @@ function buildTaskDetail(task, ctx) {
     panel.appendChild(r);
   }
 
+  // Action row: spawn a new dedicated session / claim the focused one.
+  const actions = document.createElement('div');
+  actions.className = 'task-detail-actions';
+
+  // "+ new session" — spawns a fresh chat session in the task's context
+  // folder, auto-binds it, and sends the onboarding message (read TASK.md).
+  if (typeof ctx.onSpawnSession === 'function') {
+    const spawn = document.createElement('button');
+    spawn.className = 'task-detail-claim';
+    spawn.innerHTML = '➕ 为此 task 开新 session';
+    spawn.title = 'New chat session in this task\'s context folder — auto-bound, onboarded with TASK.md';
+    spawn.onclick = () => {
+      spawn.disabled = true;
+      spawn.innerHTML = '⏳ 创建中…';
+      ctx.onSpawnSession(task.id);
+    };
+    actions.appendChild(spawn);
+  }
+
   // "Claim focused session" — binds whatever chat/terminal window is
   // currently focused to this task (the button-based binding trigger).
   if (typeof ctx.onBindFocused === 'function') {
@@ -287,8 +306,10 @@ function buildTaskDetail(task, ctx) {
     claim.innerHTML = '🔗 认领当前 session';
     claim.title = 'Bind the currently focused session window to this task';
     claim.onclick = () => ctx.onBindFocused(task.id);
-    panel.appendChild(claim);
+    actions.appendChild(claim);
   }
+
+  if (actions.children.length) panel.appendChild(actions);
 
   return panel;
 }

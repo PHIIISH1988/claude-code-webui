@@ -759,8 +759,12 @@ class App {
     };
   }
 
-  createSession({ cwd, name, model, permission, extraArgs, resumeId, mode, syncId, effort, fork, backend = 'claude', backendSessionId, agentKind, agentRole, agentNickname, sourceKind, parentThreadId }) {
+  createSession({ cwd, name, model, permission, extraArgs, resumeId, mode, syncId, effort, fork, backend = 'claude', backendSessionId, agentKind, agentRole, agentNickname, sourceKind, parentThreadId, onCreated }) {
     this._hideWelcome();
+    // Correlate this create with its 'created' reply. Concurrent creates
+    // (layout restore racing a user spawn) used to cross-wire because every
+    // pending handler claimed the first 'created' event it saw.
+    const requestId = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random());
     const defaults = this._getBackendSessionDefaults(backend);
     const sessionMode = mode || this.settings.get('session.defaultMode') || 'chat';
     const sessionModel = model !== undefined ? model : defaults.model;
@@ -779,10 +783,14 @@ class App {
       agentKind: agentKind || undefined, agentRole: agentRole || undefined, agentNickname: agentNickname || undefined,
       sourceKind: sourceKind || undefined, parentThreadId: parentThreadId || undefined,
       resume: !!resumeId, resumeId: resumeId||undefined, fork: fork||undefined, cols:120, rows:30,
+      requestId,
     });
 
     const handler = (msg) => {
       if (msg.type === 'created') {
+        // Only claim OUR creation. (msg.requestId missing = old server
+        // without the echo — fall back to legacy first-match behavior.)
+        if (msg.requestId && msg.requestId !== requestId) return;
         // Set openSpec now that we have the server session ID (for cross-client sync)
         winInfo._openSpec = {
           action: 'attachSession',
@@ -830,6 +838,12 @@ class App {
         }
         this.wm.setTitle(winInfo.id, `${sessionName} — ${msg.cwd||cwd||'~'}`);
         this.ws.offGlobal(handler);
+        // Post-wiring hook: callers (e.g. TaskManager.spawnSessionForTask)
+        // get the confirmed server session id AFTER the ChatView/terminal
+        // is attached — no separate racy global handler needed.
+        if (typeof onCreated === 'function') {
+          try { onCreated(msg); } catch (e) { console.warn('[createSession] onCreated threw:', e); }
+        }
       }
     };
     this.ws.onGlobal(handler);
