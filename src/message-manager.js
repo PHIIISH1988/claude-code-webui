@@ -282,7 +282,28 @@ class MessageManager {
       }).filter(Boolean);
 
       if (normalizedContent.length === 0) return;
-      // Use original msgId if present (for dedup with client-side local preview)
+      // Near-duplicate guard: drop a user message whose text is identical
+      // to the most recent user message created within the last 10s. Seen
+      // in the wild as a doubled webUI-injected onboarding message (two
+      // processUser calls 3ms apart on the live normalizer — exact second
+      // caller unidentified; claude stdin/JSONL provably received ONE).
+      // This is the single choke point where every user message
+      // materialises, so the guard covers all duplicate sources. 10s is
+      // far above any internal race window yet far below how fast a human
+      // intentionally re-sends the same text.
+      const newText = normalizedContent.map(b => b.text || '').join('\n');
+      if (newText.trim()) {
+        for (let i = this.messages.length - 1; i >= 0; i--) {
+          const m = this.messages[i];
+          if (m.role !== 'user') continue;
+          const oldText = (m.content || []).map(b => b.text || '').join('\n');
+          if (oldText === newText && Math.abs(Date.now() - (m.ts || 0)) < 10000) {
+            this.turnIndex--; // undo the increment above
+            return;
+          }
+          break; // only compare against the most recent user message
+        }
+      }
       const msg = this._create({ role: 'user', status: 'complete', content: normalizedContent, turnIndex: this.turnIndex });
       if (emit) this._emit({ op: 'create', message: msg });
     }
