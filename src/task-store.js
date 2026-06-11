@@ -62,6 +62,9 @@ const WRITABLE_FIELDS = new Set([
   // exposes a manual 'Mark touched now' right-click as a fallback for
   // off-agent work (Walter sent an email, made a phone call, etc).
   'last_touched_at',
+  // Blocked-loop fields (§ 2.14): webUI clears attention when Walter marks
+  // a sentinel alert handled, and can set follow-up reminders.
+  'attention', 'attention_note', 'follow_up_at', 'blocked_on',
 ]);
 
 class TaskStore extends EventEmitter {

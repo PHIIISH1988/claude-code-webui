@@ -111,6 +111,21 @@ export function renderTaskCard(task, ctx) {
 
   row.appendChild(textCol);
 
+  // Attention badge (§ 2.14 blocked loop). Two sources, sentinel-set or
+  // client-computed, so the overdue signal works even if the sentinel is
+  // down:
+  //   - task.attention = 'update'  → 📬 counterparty replied (sentinel)
+  //   - task.attention = 'overdue' → ⏰ past follow_up_at (sentinel)
+  //   - no attention but follow_up_at < now → ⏰ computed locally
+  const att = attentionSignal(task);
+  if (att) {
+    const aEl = document.createElement('span');
+    aEl.className = 'task-attention ' + att.cls;
+    aEl.textContent = att.icon;
+    aEl.title = att.tip;
+    row.appendChild(aEl);
+  }
+
   // Session-count chip (how many sessions this task is associated with).
   const sessCount = Array.isArray(ctx.sessions) ? ctx.sessions.length : 0;
   if (sessCount > 0) {
@@ -215,6 +230,32 @@ function buildTaskDetail(task, ctx) {
 
   const sessions = Array.isArray(ctx.sessions) ? ctx.sessions : [];
 
+  // Attention banner (§ 2.14) — what the sentinel found + a handled button.
+  const att = attentionSignal(task);
+  if (att) {
+    const bar = document.createElement('div');
+    bar.className = 'task-att-banner ' + att.cls;
+    const txt = document.createElement('span');
+    txt.className = 'task-att-text';
+    txt.textContent = `${att.icon} ${att.tip}`;
+    bar.appendChild(txt);
+    if (task.attention && typeof ctx.onClearAttention === 'function') {
+      const done = document.createElement('button');
+      done.className = 'task-att-clear';
+      done.textContent = '✓ 已处理';
+      done.title = 'Clear attention (处理完对应跟进后点这里)';
+      done.onclick = () => ctx.onClearAttention(task.id);
+      bar.appendChild(done);
+    }
+    panel.appendChild(bar);
+  }
+  if (task.blocked_on && !att) {
+    const b = document.createElement('div');
+    b.className = 'task-detail-header';
+    b.textContent = `⏸ 等待: ${task.blocked_on}`;
+    panel.appendChild(b);
+  }
+
   const header = document.createElement('div');
   header.className = 'task-detail-header';
   header.textContent = sessions.length
@@ -312,6 +353,30 @@ function buildTaskDetail(task, ctx) {
   if (actions.children.length) panel.appendChild(actions);
 
   return panel;
+}
+
+/**
+ * Attention signal for a task (§ 2.14): sentinel-set attention flag, or a
+ * locally-computed overdue when follow_up_at has passed (works without the
+ * sentinel). Returns { icon, cls, tip, kind } or null.
+ */
+export function attentionSignal(task) {
+  if (task?.attention === 'update') {
+    return { kind: 'update', icon: '📬', cls: 'att-update',
+      tip: task.attention_note || '对方有新动静' };
+  }
+  if (task?.attention === 'overdue') {
+    return { kind: 'overdue', icon: '⏰', cls: 'att-overdue',
+      tip: task.attention_note || `超期未跟进${task.blocked_on ? ` — 等 ${task.blocked_on}` : ''}` };
+  }
+  if (task?.follow_up_at && !task.completed) {
+    const ms = Date.parse(task.follow_up_at);
+    if (Number.isFinite(ms) && ms < Date.now()) {
+      return { kind: 'overdue', icon: '⏰', cls: 'att-overdue',
+        tip: `follow_up_at 已过${task.blocked_on ? ` — 等 ${task.blocked_on}` : ''}` };
+    }
+  }
+  return null;
 }
 
 export const TASK_PRIORITY_ORDER = { urgent: 0, high: 1, normal: 2, low: 3 };

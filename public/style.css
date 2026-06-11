@@ -391,6 +391,27 @@ html, body {
 .task-touched.tier-stale  { color: #e74c3c;            background: rgba(231, 76, 60, 0.15);  font-weight: 600; }
 
 /* Session-count chip on the row + expand arrow + detail panel */
+/* Attention badge + banner (§ 2.14 blocked loop) */
+.task-attention {
+  font-size: 11px; flex-shrink: 0; cursor: help;
+  animation: att-pulse 2.4s ease-in-out infinite;
+}
+@keyframes att-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+.task-att-banner {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 8px; margin-bottom: 3px; border-radius: 4px;
+  font-size: 10px;
+}
+.task-att-banner.att-update  { background: rgba(52,152,219,0.12); border: 1px solid rgba(52,152,219,0.4); }
+.task-att-banner.att-overdue { background: rgba(231,76,60,0.10);  border: 1px solid rgba(231,76,60,0.4); }
+.task-att-text { flex: 1; min-width: 0; }
+.task-att-clear {
+  background: var(--bg-input); color: var(--text);
+  border: 1px solid var(--border); border-radius: 3px;
+  padding: 2px 7px; font-size: 9px; cursor: pointer; flex-shrink: 0;
+}
+.task-att-clear:hover { border-color: var(--green, #2ecc71); color: var(--green, #2ecc71); }
+
 .task-sess-chip {
   font-size: 9px; color: var(--text-dim);
   background: var(--bg-input); border-radius: 3px;

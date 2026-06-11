@@ -20,7 +20,7 @@
  * workspace switch yet). All driven by app._allTasks + app.getFocusSlots().
  */
 
-import { renderTaskCard, TASK_PRIORITY_ORDER, lastTouchTimestamp } from './task-card.js';
+import { renderTaskCard, TASK_PRIORITY_ORDER, lastTouchTimestamp, attentionSignal } from './task-card.js';
 import { escHtml, createPopover } from './utils.js';
 
 // Persistent UI state for the Tasks tab (per browser, localStorage).
@@ -279,6 +279,16 @@ export function installSidebarRenderTasks(SidebarClass) {
       onUnbindSession: (key) => tm?.unlockSessionFromTask(task.id, key),
       onBindKey: (key) => tm?.lockSessionToTask(task.id, key),
       onSpawnSession: (id) => tm?.spawnSessionForTask(id),
+      onClearAttention: async (id) => {
+        try {
+          await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ attention: null, attention_note: null }),
+          });
+        } catch (e) { console.warn('[tasks] clear attention failed:', e); }
+        // server emits task-updated → re-render via _notifyTasksChanged
+      },
       onBindFocused: async (id) => {
         const ok = await tm?.bindFocusedSessionToTask(id);
         if (ok === false) {
@@ -368,6 +378,16 @@ export function installSidebarRenderTasks(SidebarClass) {
 
   // ── Sorting ──
   proto._sortTasks = function(tasks) {
+    const sorted = this._sortTasksBase(tasks);
+    // Attention items float to the top regardless of sort mode (§ 2.14) —
+    // they're rare and urgent; Walter's complaint was reminders scrolling
+    // away. Stable partition preserves the base order within each group.
+    const hot = [], rest = [];
+    for (const t of sorted) (attentionSignal(t) ? hot : rest).push(t);
+    return hot.length ? [...hot, ...rest] : sorted;
+  };
+
+  proto._sortTasksBase = function(tasks) {
     const by = this._taskView.sort;
     if (by === 'priority') {
       return tasks.sort((a, b) => {
