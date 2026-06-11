@@ -688,7 +688,13 @@ export class TaskManager {
   _idleCloseMs() {
     const s = this.app.settings?.get('task.autoCloseIdleAfter');
     const n = Number(s);
-    if (!Number.isFinite(n) || n < 0) return 30000;
+    // Default 30 MINUTES. The original 30s default terminated the previous
+    // task's session on every task switch (Walter hops tasks every few
+    // minutes; busy-guard only protects mid-turn, so the moment the agent
+    // finished replying it got killed → kill/resume churn + messages sent
+    // into dead sessions silently swallowed). 30min only reaps sessions
+    // that are genuinely abandoned.
+    if (!Number.isFinite(n) || n < 0) return 1800000;
     return n;
   }
 
